@@ -11,11 +11,19 @@ await db.exec(
     "utf8",
   ),
 );
+await db.exec(
+  await readFile(
+    new URL("../supabase/migrations/202609190001_pair_requests.sql", import.meta.url),
+    "utf8",
+  ),
+);
 const ids = [
   "11111111-1111-4111-8111-111111111111",
   "22222222-2222-4222-8222-222222222222",
   "33333333-3333-4333-8333-333333333333",
   "44444444-4444-4444-8444-444444444444",
+  "55555555-5555-4555-8555-555555555555",
+  "66666666-6666-4666-8666-666666666666",
 ];
 for (let i = 0; i < ids.length; i++) {
   await db.query("insert into auth.users values($1)", [ids[i]]);
@@ -133,10 +141,34 @@ const code2 = (await db.query("select public.create_invitation() as code"))
 await asUser(ids[3]);
 await fails("select public.join_pair($1)", [code1]);
 await db.query("select public.join_pair($1)", [code2]);
+await asUser(ids[4]);
+await db.query("select public.create_pair()");
+await db.query("select public.send_pair_request($1)", ["person_5"]);
+await asUser(ids[5]);
+const request = (
+  await db.query("select * from public.pair_requests where status='pending'")
+).rows[0];
+assert.equal(request.sender_id, ids[4]);
+assert.equal(request.recipient_id, ids[5]);
+await db.query("select public.accept_pair_request($1)", [request.id]);
+assert.equal(
+  (
+    await db.query(
+      "select member_one,member_two from public.couples where member_one=$1 or member_two=$1",
+      [ids[4]],
+    )
+  ).rows[0].member_two,
+  ids[5],
+);
+assert.equal(
+  (await db.query("select status from public.pair_requests where id=$1", [request.id]))
+    .rows[0].status,
+  "accepted",
+);
 await db.exec("reset role; set role anon");
 await fails("select * from public.notes");
 await fails("select public.create_pair()");
 await db.close();
 console.log(
-  "PASS: migration, pair creation, single-use/rotated invitations, profile visibility, cross-pair isolation, impersonation prevention, task acceptance/ownership, payment guard, schedule confirmation, overlap prevention, settings validation, anonymous access.",
+  "PASS: migrations, pair creation, nickname requests, request acceptance, single-use/rotated invitations, profile visibility, cross-pair isolation, impersonation prevention, task acceptance/ownership, payment guard, schedule confirmation, overlap prevention, settings validation, anonymous access.",
 );

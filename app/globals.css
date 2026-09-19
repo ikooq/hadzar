@@ -1013,6 +1013,36 @@ small,
   margin-left: auto;
   white-space: nowrap;
 }
+.invite-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.request-list {
+  display: grid;
+  gap: 12px;
+}
+.request-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.request-row > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+.request-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
 .filter-tabs {
   padding: 0 !important;
   gap: 25px !important;
