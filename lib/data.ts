@@ -15,13 +15,13 @@ export async function pendingPairRequests(client: SupabaseClient) {
     .select("*")
     .eq("status", "pending")
     .order("created_at", { ascending: false });
-  // Keep existing spaces usable while an owner is applying the optional
-  // request migration to an already connected Supabase project.
+  // Request availability must not stop an existing workspace loading.
   if (r.error) {
-    if (r.error.code === "42P01" || r.error.code === "PGRST205") return [];
+    if (r.error.code === "42P01" || r.error.code === "PGRST205")
+      return { requests: [] as PairRequest[], available: false };
     throw r.error;
   }
-  return (r.data || []) as PairRequest[];
+  return { requests: (r.data || []) as PairRequest[], available: true };
 }
 export async function loadData(
   client: SupabaseClient,
