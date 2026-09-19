@@ -1,5 +1,6 @@
 "use client";
 import {
+  Fragment,
   useState,
   useEffect,
   useRef,
@@ -184,6 +185,35 @@ export default function Workspace({
       minute: "2-digit",
       timeZone: couple.timezone,
     }).format(new Date(value));
+  const chatDayKey = (value: string | number) => {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      timeZone: couple.timezone,
+    }).formatToParts(new Date(value));
+    const part = (type: string) =>
+      parts.find((item) => item.type === type)?.value || "";
+    return `${part("year")}-${part("month")}-${part("day")}`;
+  };
+  const chatDateLabel = (value: string) => {
+    const key = chatDayKey(value),
+      today = chatDayKey(now),
+      todayParts = today.split("-").map(Number),
+      yesterdayDate = new Date(
+        Date.UTC(todayParts[0], todayParts[1] - 1, todayParts[2]),
+      );
+    yesterdayDate.setUTCDate(yesterdayDate.getUTCDate() - 1);
+    const yesterday = yesterdayDate.toISOString().slice(0, 10);
+    if (key === today) return "Today";
+    if (key === yesterday) return "Yesterday";
+    return new Intl.DateTimeFormat("en-GB", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+      timeZone: couple.timezone,
+    }).format(new Date(value));
+  };
   const activeTasks = data.tasks.filter((t) => !t.completed_at),
     fees = data.tasks.filter((t) => overdue(t, now) && t.penalty > 0),
     unpaid = fees.filter((t) => !t.paid_at);
@@ -724,34 +754,54 @@ export default function Workspace({
             </button>
           )}
           <div className="chat-date">Your shared conversation</div>
-          {messages.map((m, i) => (
-            <div
-              key={m.id}
-              className={
-                "message-row " +
-                (m.sender_id === userId ? "mine " : "") +
-                (messages[i - 1]?.sender_id === m.sender_id ? "grouped" : "")
-              }
-            >
-              <div
-                className={
-                  "bubble " + (m.sender_id === userId ? color(userId) : "")
-                }
-              >
-                <p>{m.body}</p>
-                <span className="message-time">
-                  {new Intl.DateTimeFormat("en-GB", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                    timeZone: couple.timezone,
-                  }).format(new Date(m.created_at))}
-                  {m.sender_id === userId && (
-                    <Check size={11} aria-label="Sent" />
-                  )}
-                </span>
-              </div>
-            </div>
-          ))}
+          {messages.map((m, i) => {
+            const previous = messages[i - 1];
+            const newDate =
+              !previous || chatDayKey(previous.created_at) !== chatDayKey(m.created_at);
+            return (
+              <Fragment key={m.id}>
+                {newDate && (
+                  <div className="chat-date message-day" role="separator">
+                    {chatDateLabel(m.created_at)}
+                  </div>
+                )}
+                <div
+                  className={
+                    "message-row " +
+                    (m.sender_id === userId ? "mine " : "") +
+                    (previous?.sender_id === m.sender_id && !newDate
+                      ? "grouped"
+                      : "")
+                  }
+                >
+                  <div
+                    className={
+                      "bubble " + (m.sender_id === userId ? color(userId) : "")
+                    }
+                  >
+                    <p>{m.body}</p>
+                    <span
+                      className="message-time"
+                      title={new Intl.DateTimeFormat("en-GB", {
+                        dateStyle: "medium",
+                        timeStyle: "short",
+                        timeZone: couple.timezone,
+                      }).format(new Date(m.created_at))}
+                    >
+                      {new Intl.DateTimeFormat("en-GB", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        timeZone: couple.timezone,
+                      }).format(new Date(m.created_at))}
+                      {m.sender_id === userId && (
+                        <Check size={11} aria-label="Sent" />
+                      )}
+                    </span>
+                  </div>
+                </div>
+              </Fragment>
+            );
+          })}
           {!messages.length && (
             <p className="quiet-empty">
               There’s room for the little things.

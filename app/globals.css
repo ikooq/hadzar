@@ -907,6 +907,13 @@ small,
   color: var(--muted-foreground);
   padding: 14px 0 24px;
 }
+.message-day {
+  padding: 18px 0 10px;
+  color: var(--foreground);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
 .message-row {
   display: flex;
   justify-content: flex-start;
