@@ -17,6 +17,7 @@ export default function Hadzar() {
     [error, setError] = useState(""),
     [recovery, setRecovery] = useState(false),
     [demo, setDemo] = useState(false),
+    [inviteAfterCreate, setInviteAfterCreate] = useState(false),
     [invite, setInvite] = useState(() =>
       typeof window === "undefined"
         ? ""
@@ -151,6 +152,7 @@ export default function Hadzar() {
         <AuthScreen
           client={client}
           recovery={recovery}
+          invite={invite}
           onRecovered={() => {
             setRecovery(false);
             history.replaceState(null, "", "/");
@@ -245,14 +247,15 @@ export default function Hadzar() {
           <button
             className="btn dark"
             disabled={busy}
-            onClick={() =>
-              act(async () => {
+            onClick={() => {
+              setInviteAfterCreate(true);
+              void act(async () => {
                 const r = await client!.rpc("create_pair");
                 if (r.error) throw r.error;
-              })
-            }
+              });
+            }}
           >
-            Create our space
+            Create our space & invite partner
           </button>
           <div className="or-line">
             <span>or join with an invitation</span>
@@ -306,6 +309,7 @@ export default function Hadzar() {
       client={client}
       reload={reload}
       error={error}
+      openInviteOnStart={inviteAfterCreate}
       onExit={() => {
         if (demo) {
           setDemo(false);

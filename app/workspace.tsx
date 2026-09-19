@@ -82,6 +82,7 @@ type Props = {
   reload: (quiet?: boolean) => Promise<void>;
   error: string;
   onExit: () => void;
+  openInviteOnStart?: boolean;
 };
 const nav = [
   { id: "schedule", label: "Schedule", icon: CalendarDays },
@@ -131,9 +132,12 @@ export default function Workspace({
   reload,
   error,
   onExit,
+  openInviteOnStart = false,
 }: Props) {
   const [view, setView] = useState<View>("schedule"),
-    [modal, setModal] = useState<Modal>(null),
+    [modal, setModal] = useState<Modal>(() =>
+      openInviteOnStart ? { kind: "invite" } : null,
+    ),
     [busy, setBusy] = useState(false),
     [formError, setFormError] = useState(""),
     [filter, setFilter] = useState("active"),

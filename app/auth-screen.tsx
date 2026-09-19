@@ -15,11 +15,13 @@ export function Brand() {
 export default function AuthScreen({
   client,
   recovery,
+  invite,
   onRecovered,
   onPreview,
 }: {
   client: SupabaseClient | null;
   recovery: boolean;
+  invite?: string;
   onRecovered: () => void;
   onPreview: () => void;
 }) {
@@ -103,6 +105,12 @@ export default function AuthScreen({
             A shared space for the moments you find, the promises you keep, and
             the everyday in between.
           </p>
+          {invite && !recovery && (
+            <p className="auth-invite-note">
+              Your partner invited you. Sign in if you already have a hadzar
+              account, or create one to join their space.
+            </p>
+          )}
           <div
             className="mini-day"
             aria-label="Example schedules for Azhar and Ilias"
