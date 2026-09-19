@@ -18,7 +18,7 @@ export async function pendingPairRequests(client: SupabaseClient) {
   // Keep existing spaces usable while an owner is applying the optional
   // request migration to an already connected Supabase project.
   if (r.error) {
-    if (r.error.code === "42P01") return [];
+    if (r.error.code === "42P01" || r.error.code === "PGRST205") return [];
     throw r.error;
   }
   return (r.data || []) as PairRequest[];
