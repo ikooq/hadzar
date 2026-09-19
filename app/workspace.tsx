@@ -141,7 +141,7 @@ export default function Workspace({
     [draft, setDraft] = useState(""),
     [inviteLink, setInviteLink] = useState(""),
     [chosenWindow, setChosenWindow] = useState(0),
-    [now, setNow] = useState(Date.now()),
+    [now, setNow] = useState(() => Date.now()),
     [older, setOlder] = useState<Message[]>([]),
     [hasOlder, setHasOlder] = useState(true),
     [chatBusy, setChatBusy] = useState(false);
@@ -192,12 +192,14 @@ export default function Workspace({
     if (nearBottom.current)
       chatEnd.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [data.messages.length, view]);
-  useEffect(() => {
+  function changeDay(next: string) {
     setChosenWindow(0);
-  }, [day]);
-  useEffect(() => {
+    setDay(next);
+  }
+  function openModal(next: Exclude<Modal, null>) {
     setFormError("");
-  }, [modal]);
+    setModal(next);
+  }
   useEffect(() => {
     const registry = (
       document as unknown as {
@@ -274,7 +276,7 @@ export default function Workspace({
   function moveDay(delta: number) {
     const d = new Date(day + "T12:00:00Z");
     d.setUTCDate(d.getUTCDate() + delta);
-    setDay(d.toISOString().slice(0, 10));
+    changeDay(d.toISOString().slice(0, 10));
   }
   async function toggleReady() {
     await perform(
@@ -620,7 +622,7 @@ export default function Workspace({
           <button
             className="icon-btn"
             aria-label="Add note"
-            onClick={() => setModal({ kind: "note" })}
+            onClick={() => openModal({ kind: "note" })}
           >
             <Plus size={18} />
           </button>
@@ -639,7 +641,7 @@ export default function Workspace({
             <button
               className="note-item"
               key={n.id}
-              onClick={() => setModal({ kind: "note", note: n })}
+              onClick={() => openModal({ kind: "note", note: n })}
             >
               <span className="note-marker">
                 {n.pinned ? <Pin size={13} /> : <span>—</span>}
@@ -916,7 +918,7 @@ export default function Workspace({
               </div>
               <button
                 className="btn"
-                onClick={() => setModal({ kind: "invite" })}
+                onClick={() => openModal({ kind: "invite" })}
               >
                 Invite partner
               </button>
@@ -931,7 +933,7 @@ export default function Workspace({
                 </div>
                 <button
                   className="btn"
-                  onClick={() => setModal({ kind: "event" })}
+                  onClick={() => openModal({ kind: "event" })}
                 >
                   <Plus size={16} /> Add busy time
                 </button>
@@ -947,7 +949,7 @@ export default function Workspace({
                   </button>
                   <button
                     className="btn"
-                    onClick={() => setDay(dayInZone(couple.timezone))}
+                    onClick={() => changeDay(dayInZone(couple.timezone))}
                   >
                     Today
                   </button>
@@ -962,7 +964,7 @@ export default function Workspace({
                     type="date"
                     aria-label="Choose day"
                     value={day}
-                    onChange={(e) => e.target.value && setDay(e.target.value)}
+                    onChange={(e) => e.target.value && changeDay(e.target.value)}
                   />
                 </div>
                 <span className="meta">
@@ -1058,7 +1060,7 @@ export default function Workspace({
                             ? "calc(56px + 8px)"
                             : "calc(50% + 28px + 8px)",
                       }}
-                      onClick={() => setModal({ kind: "event", event: e })}
+                      onClick={() => openModal({ kind: "event", event: e })}
                     >
                       <span className="event-time">
                         {time(e.start_min)}–{time(e.end_min)}
@@ -1083,7 +1085,7 @@ export default function Workspace({
                       }}
                       onClick={() => {
                         setChosenWindow(i);
-                        setModal({ kind: "plan", start: w.start, end: w.end });
+                        openModal({ kind: "plan", start: w.start, end: w.end });
                       }}
                     >
                       <span className="window-time">
@@ -1124,7 +1126,7 @@ export default function Workspace({
                           Math.max(e.start_min, couple.day_start) -
                           6,
                       }}
-                      onClick={() => setModal({ kind: "event", event: e })}
+                      onClick={() => openModal({ kind: "event", event: e })}
                     >
                       <span className="window-time">
                         {time(e.start_min)}–{time(e.end_min)} · Planned by{" "}
@@ -1143,7 +1145,7 @@ export default function Workspace({
                   <button
                     className="btn"
                     onClick={() =>
-                      setModal({
+                      openModal({
                         kind: "plan",
                         start: selected.start,
                         end: selected.end,
@@ -1211,7 +1213,7 @@ export default function Workspace({
                 </div>
                 <button
                   className="btn"
-                  onClick={() => setModal({ kind: "task" })}
+                  onClick={() => openModal({ kind: "task" })}
                 >
                   <Plus size={16} /> New commitment
                 </button>
@@ -1485,7 +1487,7 @@ export default function Workspace({
                 {!partner && (
                   <button
                     className="btn"
-                    onClick={() => setModal({ kind: "invite" })}
+                    onClick={() => openModal({ kind: "invite" })}
                   >
                     <Link2 size={16} /> Invite your partner
                   </button>

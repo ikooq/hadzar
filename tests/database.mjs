@@ -47,8 +47,7 @@ await fails("select public.create_pair()");
 await asUser(ids[2]);
 await fails("select public.join_pair($1)", [invite]);
 assert.equal((await db.query("select * from public.couples")).rows.length, 0);
-const secondPair = (await db.query("select public.create_pair() as id")).rows[0]
-  .id;
+await db.query("select public.create_pair() as id");
 await fails(
   "insert into public.notes(couple_id,author_id,title) values($1,$2,'intrusion')",
   [pair, ids[2]],
@@ -114,7 +113,7 @@ await db.query("insert into public.schedule_days values($1,$2,'2026-09-15')", [
 await db.query("select public.plan_window('2026-09-15',810,900,'Lunch')");
 await fails("select public.plan_window('2026-09-15',810,900,'Duplicate')");
 await asUser(ids[0]);
-const replacement = await db.query(
+await db.query(
   "select public.save_pair_settings($1,480,1320,45,15,3000)",
   ["Asia/Almaty"],
 );

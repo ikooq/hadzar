@@ -17,13 +17,19 @@ export default function Hadzar() {
     [error, setError] = useState(""),
     [recovery, setRecovery] = useState(false),
     [demo, setDemo] = useState(false),
-    [invite, setInvite] = useState(""),
-    [day, setDay] = useState("");
+    [invite, setInvite] = useState(() =>
+      typeof window === "undefined"
+        ? ""
+        : new URLSearchParams(window.location.search).get("invite") || "",
+    ),
+    [day, setDay] = useState(() =>
+      typeof window === "undefined"
+        ? ""
+        : dayInZone(Intl.DateTimeFormat().resolvedOptions().timeZone),
+    );
   const loadVersion = useRef(0);
   const identity = useRef<string | null>(null);
   useEffect(() => {
-    setDay(dayInZone(Intl.DateTimeFormat().resolvedOptions().timeZone));
-    setInvite(new URLSearchParams(location.search).get("invite") || "");
     let unsub: (() => void) | undefined;
     let active = true;
     getClient()
@@ -64,6 +70,9 @@ export default function Hadzar() {
       });
     return () => {
       active = false;
+      // This ref is a logical request counter, not a DOM ref. Incrementing it
+      // invalidates any in-flight reload when the auth subscription unmounts.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
       loadVersion.current++;
       unsub?.();
     };
@@ -92,7 +101,9 @@ export default function Hadzar() {
     [client, user, demo, day],
   );
   useEffect(() => {
-    if (user && !recovery) void reload();
+    if (!user || recovery) return;
+    const timer = window.setTimeout(() => void reload(), 0);
+    return () => window.clearTimeout(timer);
   }, [user, recovery, reload]);
   useEffect(() => {
     if (!user || demo || recovery) return;
