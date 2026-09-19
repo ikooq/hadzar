@@ -51,6 +51,16 @@ export type Message = {
   body: string;
   created_at: string;
 };
+export type PairRequest = {
+  id: string;
+  sender_id: string;
+  recipient_id: string;
+  sender_name: string;
+  sender_nickname: string;
+  status: "pending" | "accepted" | "declined";
+  created_at: string;
+  responded_at: string | null;
+};
 export type Data = {
   couple: Couple;
   profiles: Profile[];

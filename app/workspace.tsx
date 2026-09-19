@@ -60,12 +60,13 @@ import {
   type Task,
   type Note,
   type Message,
+  type PairRequest,
 } from "@/lib/types";
 import { sharedWindows } from "@/lib/schedule";
 
 type View = "schedule" | "tasks" | "penalties" | "notes" | "chat" | "settings";
 type Modal = {
-  kind: "event" | "task" | "note" | "invite" | "plan";
+  kind: "event" | "task" | "note" | "invite" | "plan" | "request" | "requests";
   note?: Note;
   event?: DayEvent;
   start?: number;
@@ -82,6 +83,8 @@ type Props = {
   reload: (quiet?: boolean) => Promise<void>;
   error: string;
   onExit: () => void;
+  requests: PairRequest[];
+  onRequestAction: (requestId: string, action: "accept" | "decline") => Promise<void>;
   openInviteOnStart?: boolean;
 };
 const nav = [
@@ -132,6 +135,8 @@ export default function Workspace({
   reload,
   error,
   onExit,
+  requests,
+  onRequestAction,
   openInviteOnStart = false,
 }: Props) {
   const [view, setView] = useState<View>("schedule"),
@@ -185,6 +190,7 @@ export default function Workspace({
   const visibleNotes = data.notes.filter((n) =>
     (n.title + " " + n.body).toLowerCase().includes(noteSearch.toLowerCase()),
   );
+  const incomingRequests = requests.filter((request) => request.recipient_id === userId);
   const messages = [...older, ...data.messages].filter(
     (m, i, a) => a.findIndex((x) => x.id === m.id) === i,
   );
@@ -429,6 +435,10 @@ export default function Workspace({
       false,
     );
   }
+  async function respondToRequest(requestId: string, action: "accept" | "decline") {
+    await onRequestAction(requestId, action);
+    setModal(null);
+  }
   async function saveModal(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
@@ -539,7 +549,13 @@ export default function Workspace({
             }),
           );
       }
-    }, "Saved to your shared space");
+      if (modal?.kind === "request") {
+        const nickname = String(f.get("nickname")).trim().toLowerCase();
+        if (!nickname) throw new Error("Enter your partner’s nickname.");
+        if (demo) toast.info("Requests are available in your own registered space.");
+        else await checked(client!.rpc("send_pair_request", { recipient_nickname: nickname }));
+      }
+    }, modal?.kind === "request" ? "Request sent" : "Saved to your shared space");
   }
   async function removeNote(n: Note) {
     await perform(async () => {
@@ -920,12 +936,26 @@ export default function Workspace({
                 <strong>Your half is here.</strong>
                 <p>Invite your partner to start finding time together.</p>
               </div>
-              <button
-                className="btn"
-                onClick={() => openModal({ kind: "invite" })}
-              >
-                Invite partner
-              </button>
+              <div className="invite-actions">
+                <button
+                  className="btn"
+                  onClick={() => openModal({ kind: "invite" })}
+                >
+                  Invite by link
+                </button>
+                <button
+                  className="btn"
+                  onClick={() => openModal({ kind: "request" })}
+                >
+                  Send request
+                </button>
+                <button
+                  className="btn dark"
+                  onClick={() => openModal({ kind: "requests" })}
+                >
+                  Accept request{incomingRequests.length ? ` · ${incomingRequests.length}` : ""}
+                </button>
+              </div>
             </div>
           )}
           {view === "schedule" && (
@@ -1554,7 +1584,11 @@ export default function Workspace({
                       : "Save it for later."
                     : modal?.kind === "plan"
                       ? "Make time yours."
-                      : "Invite your person."}
+                      : modal?.kind === "request"
+                        ? "Ask to share a space."
+                        : modal?.kind === "requests"
+                          ? "Incoming requests."
+                          : "Invite your person."}
             </DialogTitle>
             <DialogDescription>
               {modal?.kind === "invite"
@@ -1563,9 +1597,44 @@ export default function Workspace({
                   ? `${dateLabel} · ${couple.timezone.replaceAll("_", " ")}`
                   : modal?.kind === "task"
                     ? "Agree on who, when, and what’s at stake."
-                    : "A small place for something worth remembering."}
+                    : modal?.kind === "request"
+                      ? "Use your partner’s hadzar nickname to send a request."
+                      : modal?.kind === "requests"
+                        ? "Accept a request to connect your two spaces."
+                        : "A small place for something worth remembering."}
             </DialogDescription>
-            {modal?.kind === "invite" ? (
+            {modal?.kind === "requests" ? (
+              <div className="dialog-body request-list">
+                {incomingRequests.length ? (
+                  incomingRequests.map((request) => (
+                    <div className="request-row" key={request.id}>
+                      <div>
+                        <strong>{request.sender_name}</strong>
+                        <span className="meta">@{request.sender_nickname}</span>
+                      </div>
+                      <div className="request-actions">
+                        <button
+                          className="btn dark"
+                          disabled={busy}
+                          onClick={() => void respondToRequest(request.id, "accept")}
+                        >
+                          Accept request
+                        </button>
+                        <button
+                          className="plain"
+                          disabled={busy}
+                          onClick={() => void respondToRequest(request.id, "decline")}
+                        >
+                          Decline
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="muted">No pending requests yet.</p>
+                )}
+              </div>
+            ) : modal?.kind === "invite" ? (
               <div className="dialog-body">
                 <div className="invitation-art">
                   <span className="avatar a">{me.name[0]}</span>
@@ -1628,27 +1697,42 @@ export default function Workspace({
               </div>
             ) : (
               <form className="dialog-body" onSubmit={saveModal}>
-                <label>
-                  {modal?.kind === "plan"
-                    ? "What would you like to do?"
-                    : "Title"}
-                  <input
-                    autoFocus
-                    name="title"
-                    required
-                    maxLength={120}
-                    defaultValue={modal?.note?.title || ""}
-                    placeholder={
-                      modal?.kind === "plan"
-                        ? "Lunch in the little square"
-                        : modal?.kind === "task"
-                          ? "Pick up the parcel"
-                          : modal?.kind === "note"
-                            ? "A little weekend idea"
-                            : "Work, an appointment, the way home…"
-                    }
-                  />
-                </label>
+                {modal?.kind === "request" ? (
+                  <label>
+                    Partner nickname
+                    <input
+                      autoFocus
+                      name="nickname"
+                      required
+                      minLength={3}
+                      maxLength={24}
+                      pattern="[a-zA-Z0-9_]{3,24}"
+                      placeholder="azhar"
+                    />
+                  </label>
+                ) : (
+                  <label>
+                    {modal?.kind === "plan"
+                      ? "What would you like to do?"
+                      : "Title"}
+                    <input
+                      autoFocus
+                      name="title"
+                      required
+                      maxLength={120}
+                      defaultValue={modal?.note?.title || ""}
+                      placeholder={
+                        modal?.kind === "plan"
+                          ? "Lunch in the little square"
+                          : modal?.kind === "task"
+                            ? "Pick up the parcel"
+                            : modal?.kind === "note"
+                              ? "A little weekend idea"
+                              : "Work, an appointment, the way home…"
+                      }
+                    />
+                  </label>
+                )}
                 {modal?.kind === "event" && (
                   <div className="form-row">
                     <label>
@@ -1749,6 +1833,8 @@ export default function Workspace({
                   <button type="submit" className="btn dark" disabled={busy}>
                     {busy
                       ? "Saving…"
+                      : modal?.kind === "request"
+                        ? "Send request"
                       : modal?.kind === "task"
                         ? "Save commitment"
                         : modal?.kind === "plan"

@@ -4,14 +4,15 @@ import type { SupabaseClient, User } from "@supabase/supabase-js";
 import AuthScreen, { Brand } from "./auth-screen";
 import Workspace from "./workspace";
 import { getClient } from "@/lib/supabase";
-import { profileFor, loadData } from "@/lib/data";
-import { dayInZone, type Data, type Profile } from "@/lib/types";
+import { profileFor, loadData, pendingPairRequests } from "@/lib/data";
+import { dayInZone, type Data, type PairRequest, type Profile } from "@/lib/types";
 import { demoData } from "@/lib/demo";
 export default function Hadzar() {
   const [client, setClient] = useState<SupabaseClient | null>(null),
     [user, setUser] = useState<User | null>(null),
     [profile, setProfile] = useState<Profile | null>(null),
     [data, setData] = useState<Data | null>(null),
+    [requests, setRequests] = useState<PairRequest[]>([]),
     [loading, setLoading] = useState(true),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
@@ -55,6 +56,7 @@ export default function Hadzar() {
               loadVersion.current++;
               setData(null);
               setProfile(null);
+              setRequests([]);
             }
           },
         );
@@ -84,10 +86,13 @@ export default function Hadzar() {
       const version = ++loadVersion.current;
       try {
         const p = await profileFor(client, user.id);
-        const d = p ? await loadData(client, day) : null;
+        const [d, nextRequests] = p
+          ? await Promise.all([loadData(client, day), pendingPairRequests(client)])
+          : [null, [] as PairRequest[]];
         if (version !== loadVersion.current) return;
         setProfile(p);
         setData(d);
+        setRequests(nextRequests);
         setError("");
       } catch (e) {
         if (version === loadVersion.current)
@@ -129,6 +134,15 @@ export default function Hadzar() {
     } finally {
       setBusy(false);
     }
+  }
+  async function respondToRequest(requestId: string, action: "accept" | "decline") {
+    await act(async () => {
+      const r = await client!.rpc(
+        action === "accept" ? "accept_pair_request" : "decline_pair_request",
+        { request_id: requestId },
+      );
+      if (r.error) throw r.error;
+    });
   }
   function preview() {
     const today = dayInZone(Intl.DateTimeFormat().resolvedOptions().timeZone);
@@ -178,6 +192,38 @@ export default function Hadzar() {
           <p className="muted">
             This is how you’ll appear in your shared space.
           </p>
+          {requests.length > 0 && (
+            <div className="request-list">
+              <div className="panel-title">
+                <h2>Pair requests</h2>
+                <span className="meta">{requests.length} waiting</span>
+              </div>
+              {requests.map((request) => (
+                <div className="request-row" key={request.id}>
+                  <div>
+                    <strong>{request.sender_name}</strong>
+                    <span className="meta">@{request.sender_nickname}</span>
+                  </div>
+                  <div className="request-actions">
+                    <button
+                      className="btn dark"
+                      disabled={busy}
+                      onClick={() => void respondToRequest(request.id, "accept")}
+                    >
+                      Accept request
+                    </button>
+                    <button
+                      className="plain"
+                      disabled={busy}
+                      onClick={() => void respondToRequest(request.id, "decline")}
+                    >
+                      Decline
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -309,6 +355,8 @@ export default function Hadzar() {
       client={client}
       reload={reload}
       error={error}
+      requests={requests}
+      onRequestAction={respondToRequest}
       openInviteOnStart={inviteAfterCreate}
       onExit={() => {
         if (demo) {

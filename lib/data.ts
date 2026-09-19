@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Data, Profile } from "./types";
+import type { Data, PairRequest, Profile } from "./types";
 export async function profileFor(client: SupabaseClient, id: string) {
   const r = await client
     .from("profiles")
@@ -8,6 +8,20 @@ export async function profileFor(client: SupabaseClient, id: string) {
     .maybeSingle();
   if (r.error) throw r.error;
   return r.data as Profile | null;
+}
+export async function pendingPairRequests(client: SupabaseClient) {
+  const r = await client
+    .from("pair_requests")
+    .select("*")
+    .eq("status", "pending")
+    .order("created_at", { ascending: false });
+  // Keep existing spaces usable while an owner is applying the optional
+  // request migration to an already connected Supabase project.
+  if (r.error) {
+    if (r.error.code === "42P01") return [];
+    throw r.error;
+  }
+  return (r.data || []) as PairRequest[];
 }
 export async function loadData(
   client: SupabaseClient,

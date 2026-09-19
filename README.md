@@ -11,7 +11,7 @@ Live email delivery, signup, password recovery, and cross-device synchronization
 ## Connect Supabase
 
 1. Create a Supabase project at https://supabase.com/dashboard.
-2. Run `supabase/migrations/202609140001_hadzar.sql` once in its SQL Editor. This creates tables, RLS policies, and the transaction-safe functions used by the app. Do not rerun it on an already initialized database; append migrations for subsequent changes.
+2. Run `supabase/migrations/202609140001_hadzar.sql` once in its SQL Editor, then run `supabase/migrations/202609190001_pair_requests.sql`. The second migration adds nickname-based requests with Accept/Decline actions for people who already have accounts. Run each migration once, in filename order; do not rerun an already applied migration.
 3. In Authentication, enable Email and password, require email confirmation, and set a minimum password length of 8 or greater.
 4. Set Site URL to the final hadzar URL. Allow that origin's root, invitation query URLs, and `/?recovery=1` as authentication redirect URLs. For local development allow `http://localhost:5173/**` as well. Use exact production-origin patterns, not an unrestricted global wildcard.
 5. Configure custom SMTP for confirmations and password resets before public registration. Supabase's default mail service is for testing and limits recipients/delivery.
@@ -24,7 +24,7 @@ Supabase documentation: https://supabase.com/docs/guides/auth/passwords and http
 ## Product behavior
 
 - Each person has their own email/password account and profile. Nicknames use 3–24 letters, numbers, or underscores and are unique (normalized to lowercase).
-- A person can belong to one pair. A pair holds at most two people. Invitations expire after seven days, are stored as SHA-256 hashes, and are consumed on joining. Rotating an invitation invalidates the old one.
+- A person can belong to one pair. A pair holds at most two people. Invitations expire after seven days, are stored as SHA-256 hashes, and are consumed on joining. Rotating an invitation invalidates the old one. People with existing accounts can also send a request by nickname; the recipient can accept or decline it from the shared workspace banner.
 - Add busy blocks in the pair's timezone. Both partners must confirm the selected day's schedule before free windows appear. The algorithm unions busy intervals, applies the shared buffer, clips to shared hours, and filters by minimum duration.
 - Shared plans recheck both confirmations and overlapping events in the database before saving.
 - Commitments include a responsible person, exact deadline and integer KZT amount. A task assigned to the partner requires their acceptance. Server functions protect deadline, amount, acceptance, completion and recorded-payment timestamps.
