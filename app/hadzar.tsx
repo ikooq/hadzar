@@ -7,12 +7,16 @@ import { getClient } from "@/lib/supabase";
 import { profileFor, loadData, pendingPairRequests } from "@/lib/data";
 import { dayInZone, type Data, type PairRequest, type Profile } from "@/lib/types";
 import { demoData } from "@/lib/demo";
+import { pairRequestError } from "@/lib/pair-requests";
+import { PairRequestList } from "./pair-request-list";
 export default function Hadzar() {
   const [client, setClient] = useState<SupabaseClient | null>(null),
     [user, setUser] = useState<User | null>(null),
     [profile, setProfile] = useState<Profile | null>(null),
     [data, setData] = useState<Data | null>(null),
     [requests, setRequests] = useState<PairRequest[]>([]),
+    [requestsAvailable, setRequestsAvailable] = useState(true),
+    [requestSent, setRequestSent] = useState(false),
     [loading, setLoading] = useState(true),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
@@ -57,6 +61,8 @@ export default function Hadzar() {
               setData(null);
               setProfile(null);
               setRequests([]);
+              setRequestsAvailable(true);
+              setRequestSent(false);
             }
           },
         );
@@ -88,11 +94,12 @@ export default function Hadzar() {
         const p = await profileFor(client, user.id);
         const [d, nextRequests] = p
           ? await Promise.all([loadData(client, day), pendingPairRequests(client)])
-          : [null, [] as PairRequest[]];
+          : [null, { requests: [] as PairRequest[], available: true }];
         if (version !== loadVersion.current) return;
         setProfile(p);
         setData(d);
-        setRequests(nextRequests);
+        setRequests(nextRequests.requests);
+        setRequestsAvailable(nextRequests.available);
         setError("");
       } catch (e) {
         if (version === loadVersion.current)
@@ -136,13 +143,11 @@ export default function Hadzar() {
     }
   }
   async function respondToRequest(requestId: string, action: "accept" | "decline") {
-    await act(async () => {
-      const r = await client!.rpc(
-        action === "accept" ? "accept_pair_request" : "decline_pair_request",
-        { request_id: requestId },
-      );
-      if (r.error) throw r.error;
-    });
+    const r = await client!.rpc(
+      action === "accept" ? "accept_pair_request" : "decline_pair_request",
+      { request_id: requestId },
+    );
+    if (r.error) throw pairRequestError(r.error);
   }
   function preview() {
     const today = dayInZone(Intl.DateTimeFormat().resolvedOptions().timeZone);
@@ -192,38 +197,6 @@ export default function Hadzar() {
           <p className="muted">
             This is how you’ll appear in your shared space.
           </p>
-          {requests.length > 0 && (
-            <div className="request-list">
-              <div className="panel-title">
-                <h2>Pair requests</h2>
-                <span className="meta">{requests.length} waiting</span>
-              </div>
-              {requests.map((request) => (
-                <div className="request-row" key={request.id}>
-                  <div>
-                    <strong>{request.sender_name}</strong>
-                    <span className="meta">@{request.sender_nickname}</span>
-                  </div>
-                  <div className="request-actions">
-                    <button
-                      className="btn dark"
-                      disabled={busy}
-                      onClick={() => void respondToRequest(request.id, "accept")}
-                    >
-                      Accept request
-                    </button>
-                    <button
-                      className="plain"
-                      disabled={busy}
-                      onClick={() => void respondToRequest(request.id, "decline")}
-                    >
-                      Decline
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -290,6 +263,30 @@ export default function Hadzar() {
             Every shared day starts with two people. Create your space, or join
             your partner’s.
           </p>
+          <p className="meta">Your nickname: @{profile?.nickname}</p>
+          <section className="request-onboarding">
+            <h2>Incoming requests</h2>
+            {requestsAvailable ? <PairRequestList
+              requests={requests.filter(request => request.recipient_id === user?.id)}
+              busy={busy}
+              onRespond={(id, action) => act(() => respondToRequest(id, action))}
+            /> : <p className="muted">Partner requests are temporarily unavailable. You can still join by invitation link below.</p>}
+          </section>
+          <form onSubmit={e => {
+            e.preventDefault();
+            const nickname = String(new FormData(e.currentTarget).get("partner_nickname")).trim().replace(/^@/, "").toLowerCase();
+            setRequestSent(false);
+            void act(async () => {
+              const result = await client!.rpc("send_pair_request", { recipient_nickname: nickname });
+              if (result.error) throw pairRequestError(result.error);
+              setRequestSent(true);
+            });
+          }}>
+            <label>Partner nickname<input name="partner_nickname" required pattern="@?[a-zA-Z0-9_]{3,24}" maxLength={25} placeholder="Your partner’s nickname" /></label>
+            <button className="btn" disabled={busy || !requestsAvailable}>Send request</button>
+            {(requestSent || requests.some(request => request.sender_id === user?.id)) && <p className="meta" role="status">Request sent. Your partner can accept it in their account.</p>}
+          </form>
+          <div className="or-line"><span>or create your space first</span></div>
           <button
             className="btn dark"
             disabled={busy}
@@ -346,6 +343,7 @@ export default function Hadzar() {
     );
   return (
     <Workspace
+      key={`${data.couple.id}:${data.couple.member_two || "solo"}`}
       data={data}
       setData={setData}
       userId={demo ? "azhar" : user!.id}
@@ -356,8 +354,9 @@ export default function Hadzar() {
       reload={reload}
       error={error}
       requests={requests}
+      requestsAvailable={requestsAvailable}
       onRequestAction={respondToRequest}
-      openInviteOnStart={inviteAfterCreate}
+      openInviteOnStart={inviteAfterCreate && !data.couple.member_two}
       onExit={() => {
         if (demo) {
           setDemo(false);

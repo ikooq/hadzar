@@ -64,6 +64,8 @@ import {
   type PairRequest,
 } from "@/lib/types";
 import { sharedWindows } from "@/lib/schedule";
+import { pairRequestError } from "@/lib/pair-requests";
+import { PairRequestList } from "./pair-request-list";
 
 type View = "schedule" | "tasks" | "penalties" | "notes" | "chat" | "settings";
 type Modal = {
@@ -85,6 +87,7 @@ type Props = {
   error: string;
   onExit: () => void;
   requests: PairRequest[];
+  requestsAvailable: boolean;
   onRequestAction: (requestId: string, action: "accept" | "decline") => Promise<void>;
   openInviteOnStart?: boolean;
 };
@@ -137,6 +140,7 @@ export default function Workspace({
   error,
   onExit,
   requests,
+  requestsAvailable,
   onRequestAction,
   openInviteOnStart = false,
 }: Props) {
@@ -466,8 +470,7 @@ export default function Workspace({
     );
   }
   async function respondToRequest(requestId: string, action: "accept" | "decline") {
-    await onRequestAction(requestId, action);
-    setModal(null);
+    await perform(() => onRequestAction(requestId, action), action === "accept" ? "You’re connected. Welcome to your shared space." : "Request declined");
   }
   async function saveModal(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -580,10 +583,13 @@ export default function Workspace({
           );
       }
       if (modal?.kind === "request") {
-        const nickname = String(f.get("nickname")).trim().toLowerCase();
+        const nickname = String(f.get("nickname")).trim().replace(/^@/, "").toLowerCase();
         if (!nickname) throw new Error("Enter your partner’s nickname.");
         if (demo) toast.info("Requests are available in your own registered space.");
-        else await checked(client!.rpc("send_pair_request", { recipient_nickname: nickname }));
+        else {
+          const result = await client!.rpc("send_pair_request", { recipient_nickname: nickname });
+          if (result.error) throw pairRequestError(result.error);
+        }
       }
     }, modal?.kind === "request" ? "Request sent" : "Saved to your shared space");
   }
@@ -985,6 +991,9 @@ export default function Workspace({
               <div>
                 <strong>Your half is here.</strong>
                 <p>Invite your partner to start finding time together.</p>
+                <p>Your nickname: @{me.nickname}</p>
+                {!requestsAvailable && <p role="status">Partner requests are temporarily unavailable. Invite by link while we reconnect them.</p>}
+                {requests.some(request => request.sender_id === userId) && <p role="status">Request sent · waiting for your partner to accept.</p>}
               </div>
               <div className="invite-actions">
                 <button
@@ -996,12 +1005,14 @@ export default function Workspace({
                 <button
                   className="btn"
                   onClick={() => openModal({ kind: "request" })}
+                  disabled={!requestsAvailable}
                 >
                   Send request
                 </button>
                 <button
                   className="btn dark"
                   onClick={() => openModal({ kind: "requests" })}
+                  disabled={!requestsAvailable}
                 >
                   Accept request{incomingRequests.length ? ` · ${incomingRequests.length}` : ""}
                 </button>
@@ -1654,35 +1665,8 @@ export default function Workspace({
                         : "A small place for something worth remembering."}
             </DialogDescription>
             {modal?.kind === "requests" ? (
-              <div className="dialog-body request-list">
-                {incomingRequests.length ? (
-                  incomingRequests.map((request) => (
-                    <div className="request-row" key={request.id}>
-                      <div>
-                        <strong>{request.sender_name}</strong>
-                        <span className="meta">@{request.sender_nickname}</span>
-                      </div>
-                      <div className="request-actions">
-                        <button
-                          className="btn dark"
-                          disabled={busy}
-                          onClick={() => void respondToRequest(request.id, "accept")}
-                        >
-                          Accept request
-                        </button>
-                        <button
-                          className="plain"
-                          disabled={busy}
-                          onClick={() => void respondToRequest(request.id, "decline")}
-                        >
-                          Decline
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <p className="muted">No pending requests yet.</p>
-                )}
+              <div className="dialog-body">
+                <PairRequestList requests={incomingRequests} busy={busy} onRespond={respondToRequest} />
               </div>
             ) : modal?.kind === "invite" ? (
               <div className="dialog-body">
@@ -1717,8 +1701,8 @@ export default function Workspace({
                   </>
                 ) : (
                   <p className="muted">
-                    Send the link to your partner. They’ll create their own
-                    account and choose their name and nickname.
+                    Send the link to your partner. They can sign in with their
+                    existing account or create one to join you.
                   </p>
                 )}
                 <button className="btn" disabled={busy} onClick={makeInvite}>
@@ -1755,8 +1739,8 @@ export default function Workspace({
                       name="nickname"
                       required
                       minLength={3}
-                      maxLength={24}
-                      pattern="[a-zA-Z0-9_]{3,24}"
+                      maxLength={25}
+                      pattern="@?[a-zA-Z0-9_]{3,24}"
                       placeholder="azhar"
                     />
                   </label>

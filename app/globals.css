@@ -1031,8 +1031,17 @@ small,
   display: grid;
   gap: 12px;
 }
+.request-onboarding {
+  display: grid;
+  gap: 12px;
+  margin-block: 20px;
+}
+.request-list .meta {
+  overflow-wrap: anywhere;
+}
 .request-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
@@ -1748,6 +1757,17 @@ small,
   .invite-banner > div {
     flex: 1;
     min-width: 180px;
+  }
+  .invite-banner > .invite-actions {
+    flex: 1 0 100%;
+    min-width: 0;
+    justify-content: flex-start;
+  }
+  .invite-actions .btn {
+    flex: 1 1 auto;
+  }
+  .request-actions {
+    justify-content: flex-start;
   }
   .invite-banner > .btn {
     font-size: 12px;
