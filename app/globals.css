@@ -235,6 +235,12 @@ small,
   max-width: 360px;
   color: var(--muted-foreground);
 }
+.auth-invite-note {
+  margin-top: 18px;
+  padding-left: 14px;
+  border-left: 2px solid var(--together);
+  color: var(--foreground) !important;
+}
 .auth-form-wrap {
   background: var(--card);
   padding: 60px 48px;
