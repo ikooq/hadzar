@@ -97,6 +97,12 @@ await fails("select public.act_on_task($1,'complete')", [task]);
 await db.query("select public.act_on_task($1,'accept')", [task]);
 await db.query("select public.act_on_task($1,'complete')", [task]);
 await fails("select public.act_on_task($1,'paid')", [task]);
+assert.equal((await db.query("select confirmed_at from public.tasks where id=$1", [task])).rows[0].confirmed_at, null);
+await asUser(ids[0]);
+await db.query("select public.act_on_task($1,'confirm')", [task]);
+assert.ok((await db.query("select confirmed_at from public.tasks where id=$1", [task])).rows[0].confirmed_at);
+await db.query("insert into public.message_reads(couple_id,user_id,last_read_at) values($1,$2,now())", [pair, ids[0]]);
+await fails("insert into public.message_reads(couple_id,user_id) values($1,$2)", [pair, ids[1]]);
 await asUser(ids[2]);
 for (const table of ["notes", "messages", "tasks", "events"])
   assert.equal(
