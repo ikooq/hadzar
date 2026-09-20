@@ -11,7 +11,7 @@ Live email delivery and password recovery still depend on the connected Supabase
 ## Connect Supabase
 
 1. Create a Supabase project at https://supabase.com/dashboard.
-2. For a new database, run `supabase/migrations/202609140001_hadzar.sql` once, followed by `supabase/migrations/202609190002_repair_pair_requests.sql`, `supabase/migrations/202609200001_product_improvements.sql`, and `supabase/migrations/202609210001_focus_integrity.sql`. For an existing hadzar database, run the repair, product improvements, and focus integrity files. They are safe to rerun and refresh the API schema cache. Publishing the website does not apply external Supabase migrations.
+2. For a new database, run `supabase/migrations/202609140001_hadzar.sql` once, followed by `supabase/migrations/202609190002_repair_pair_requests.sql`, `supabase/migrations/202609200001_product_improvements.sql`, `supabase/migrations/202609210001_focus_integrity.sql`, and `supabase/migrations/202609220001_shared_plans_notifications.sql`. For an existing hadzar database, run the repair, product improvements, focus integrity, and shared plans files. They are safe to rerun and refresh the API schema cache. Publishing the website does not apply external Supabase migrations.
 3. In Authentication, enable Email and password, require email confirmation, and set a minimum password length of 8 or greater.
 4. Set Site URL to the final hadzar URL. Allow that origin's root, invitation query URLs, and `/?recovery=1` as authentication redirect URLs. For local development allow `http://localhost:5173/**` as well. Use exact production-origin patterns, not an unrestricted global wildcard.
 5. Configure custom SMTP for confirmations and password resets before public registration. Supabase's default mail service is for testing and limits recipients/delivery.
@@ -30,6 +30,8 @@ Supabase documentation: https://supabase.com/docs/guides/auth/passwords and http
 - Shared plans recheck both confirmations and overlapping events in the database before saving.
 - Busy blocks can be repeated for a week, weekdays, or four weekly occurrences. The selected day can also be exported as an `.ics` calendar file without connecting an external calendar account.
 - Busy event changes invalidate both schedule confirmations for that day. The schedule also surfaces the three longest confirmed windows in the next seven days.
+- Shared-window proposals use a short database hold while they are saved, then keep an explicit proposed/accepted/reschedule/declined state so both partners can respond without double-booking the moment.
+- Busy blocks carry a series id for daily, weekday, and weekly repeats; a whole series can be removed from the event dialog. Notes can be shared or private, can carry a reminder time, and due reminders appear in the activity panel.
 - Commitments include a responsible person, exact deadline and integer KZT amount. A task assigned to the partner requires their acceptance. Server functions protect deadline, amount, acceptance, completion and recorded-payment timestamps. Declines, cancellations and waived penalties remain in history instead of disappearing.
 - A completed commitment can be confirmed by the person who created it. The schedule includes a small seven-day reflection with shared moments, kept promises and open commitments.
 - Late accepted commitments appear as penalties, including those completed after the deadline. Recording payment is bookkeeping only; no bank or payment processor is connected.
@@ -37,6 +39,8 @@ Supabase documentation: https://supabase.com/docs/guides/auth/passwords and http
 - Sent pair requests can be cancelled and show a distinct cancelled status. Completed commitments can be confirmed by the person who created them. Settings supports password changes, a complete JSON export, and account deletion.
 - A person can leave a shared space safely; the remaining partner keeps their account and space. The workspace shows an offline state and pauses writes until the connection returns.
 - Important request, message and commitment changes appear in a quiet in-app activity panel. The site includes a small PWA manifest and shell cache for installable mobile use; writes still require a live connection.
+- Activity items are persisted in Supabase and update in realtime. Chat messages written while offline wait in a local outbox and are retried after reconnection with a visible sync count.
+- New accounts get a short first-run setup panel that points to shared hours, a first busy block, and day confirmation without blocking exploration.
 - Desktop keeps notes and chat in a right column. Mobile uses six tabs. The sample workspace is ephemeral; real records live in Supabase, not browser storage. Supabase manages the login session in browser storage.
 - No external calendar synchronization, automatic bank debit or push notifications are claimed or configured.
 

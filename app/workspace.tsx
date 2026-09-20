@@ -76,7 +76,8 @@ import { OutgoingPairRequestList, PairRequestList } from "./pair-request-list";
 
 type View = "schedule" | "tasks" | "penalties" | "notes" | "chat" | "settings";
 type WeekCandidate = { day: string; start: number; end: number };
-type LocalNotice = { id: string; title: string; body: string; at: number };
+type LocalNotice = { id: string; title: string; body: string; at: number; read?: boolean };
+type QueuedMessage = { id: string; body: string; created_at: string };
 type Modal = {
   kind: "event" | "task" | "note" | "invite" | "plan" | "request" | "requests";
   note?: Note;
@@ -171,7 +172,14 @@ export default function Workspace({
     [weekCandidates, setWeekCandidates] = useState<WeekCandidate[]>([]),
     [weekLoading, setWeekLoading] = useState(false),
     [noticeOpen, setNoticeOpen] = useState(false),
-    [notices, setNotices] = useState<LocalNotice[]>([]);
+    [notices, setNotices] = useState<LocalNotice[]>([]),
+    [queuedMessages, setQueuedMessages] = useState<QueuedMessage[]>(() => {
+      if (typeof window === "undefined") return [];
+      try { return JSON.parse(localStorage.getItem(`hadzar-outbox-${data.couple.id}`) || "[]"); } catch { return []; }
+    }),
+    [setupOpen, setSetupOpen] = useState(() =>
+      typeof window !== "undefined" && !localStorage.getItem(`hadzar-setup-${data.couple.id}`),
+    );
   const [accountError, setAccountError] = useState("");
   const [online, setOnline] = useState(() =>
     typeof navigator === "undefined" ? true : navigator.onLine,
@@ -257,10 +265,64 @@ export default function Workspace({
   const unreadMessages = messages.filter(
     (message) => message.sender_id !== userId && (!readMarker || message.created_at > readMarker),
   ).length;
+  const notificationItems = [
+    ...data.notifications.map((notice) => ({
+      id: notice.id,
+      title: notice.title,
+      body: notice.body,
+      at: Date.parse(notice.created_at),
+      read: !!notice.read_at,
+      persistent: true,
+    })),
+    ...notices
+      .filter((notice) => !data.notifications.some((item) => item.id === notice.id))
+      .map((notice) => ({ ...notice, persistent: false })),
+  ].sort((a, b) => b.at - a.at);
+  const unreadNotificationCount = notificationItems.filter((notice) => !notice.read).length;
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 30000);
     return () => clearInterval(id);
   }, []);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const storageKey = `hadzar-note-reminders-${couple.id}`;
+    let delivered: string[] = [];
+    try { delivered = JSON.parse(localStorage.getItem(storageKey) || "[]"); } catch { delivered = []; }
+    const deliveredSet = new Set(delivered);
+    const due = data.notes.filter((note) => note.remind_at && Date.parse(note.remind_at) <= now && !deliveredSet.has(note.id));
+    if (!due.length) return;
+    const fresh = due.map((note) => ({
+      id: `note-reminder-${note.id}`,
+      title: `Reminder: ${note.title}`,
+      body: note.body || "You saved this for later.",
+      at: Date.now(),
+    }));
+    queueMicrotask(() => setNotices((current) => [...fresh, ...current.filter((notice) => !fresh.some((item) => item.id === notice.id))]));
+    const next = [...delivered, ...due.map((note) => note.id)].slice(-100);
+    localStorage.setItem(storageKey, JSON.stringify(next));
+  }, [couple.id, data.notes, now]);
+  useEffect(() => {
+    if (typeof window !== "undefined") localStorage.setItem(`hadzar-outbox-${couple.id}`, JSON.stringify(queuedMessages));
+  }, [couple.id, queuedMessages]);
+  useEffect(() => {
+    if (!online || demo || !client || !queuedMessages.length) return;
+    let active = true;
+    void (async () => {
+      const remaining: QueuedMessage[] = [];
+      for (const message of queuedMessages) {
+        const result = await client.from("messages").insert({ couple_id: couple.id, sender_id: userId, body: message.body });
+        if (result.error) remaining.push(message);
+      }
+      if (active) {
+        if (remaining.length !== queuedMessages.length) {
+          setQueuedMessages(remaining);
+          await reload(true);
+          toast.success("Offline messages synced");
+        }
+      }
+    })();
+    return () => { active = false; };
+  }, [online, demo, client, couple.id, userId, queuedMessages, reload]);
   useEffect(() => {
     if (nearBottom.current)
       chatEnd.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -383,6 +445,10 @@ export default function Workspace({
   function changeDay(next: string) {
     setChosenWindow(0);
     setDay(next);
+  }
+  function finishSetup() {
+    if (typeof window !== "undefined") localStorage.setItem(`hadzar-setup-${couple.id}`, "done");
+    setSetupOpen(false);
   }
   function openModal(next: Exclude<Modal, null>) {
     setFormError("");
@@ -561,8 +627,13 @@ export default function Workspace({
   async function sendMessage(e: FormEvent) {
     e.preventDefault();
     const body = draft.trim();
-    if (!body || chatBusy || !online) {
-      if (!online) toast.error("You’re offline. Your message was not sent.");
+    if (!body || chatBusy) {
+      return;
+    }
+    if (!online && !demo) {
+      setQueuedMessages((current) => [...current, { id: crypto.randomUUID(), body, created_at: new Date().toISOString() }]);
+      setDraft("");
+      toast.success("Saved to your outbox · it will send when you reconnect.");
       return;
     }
     setChatBusy(true);
@@ -665,6 +736,7 @@ export default function Workspace({
           if (repeat === "weekly" && i % 7 !== 0) continue;
           days.push(next.toISOString().slice(0, 10));
         }
+        const seriesId = repeat === "none" ? null : crypto.randomUUID();
         const records = days.map((eventDay) => ({
           id: crypto.randomUUID(),
           couple_id: couple.id,
@@ -674,6 +746,8 @@ export default function Workspace({
           start_min: start,
           end_min: end,
           shared: false,
+          series_id: seriesId,
+          series_rule: repeat === "none" ? null : repeat,
         }));
         if (demo) update((d) => ({ ...d, events: [...d.events, ...records] }));
         else await checked(client!.from("events").insert(records));
@@ -688,23 +762,42 @@ export default function Workspace({
           start_min: modal.start!,
           end_min: modal.end!,
           shared: true,
+          plan_status: "proposed" as const,
+          plan_note: "",
         };
         if (demo) update((d) => ({ ...d, events: [...d.events, record] }));
-        else
-          await checked(
-            client!.rpc("plan_window", {
-              event_day: day,
-              start_at: record.start_min,
-              end_at: record.end_min,
-              event_title: record.title,
-            }),
-          );
+        else {
+          const hold = await client!.rpc("hold_window", {
+            event_day: day,
+            start_at: record.start_min,
+            end_at: record.end_min,
+            hold_minutes: 10,
+          });
+          if (hold.error) throw hold.error;
+          try {
+            await checked(
+              client!.rpc("propose_window", {
+                event_day: day,
+                start_at: record.start_min,
+                end_at: record.end_min,
+                event_title: record.title,
+                event_note: "",
+              }),
+            );
+          } finally {
+            if (hold.data) await client!.rpc("release_window", { hold_id: hold.data });
+          }
+        }
       }
       if (modal?.kind === "note") {
         const record = {
           title: String(f.get("title")).trim(),
           body: String(f.get("body")).trim(),
           pinned: f.get("pinned") === "on",
+          visibility: String(f.get("visibility") || "shared") as "shared" | "private",
+          remind_at: String(f.get("remind_at") || "")
+            ? new Date(String(f.get("remind_at"))).toISOString()
+            : null,
         };
         if (demo) {
           update((d) => ({
@@ -797,6 +890,27 @@ export default function Workspace({
         }));
       else await checked(client!.from("events").delete().eq("id", e.id));
     }, "Event removed");
+  }
+  async function removeEventSeries(e: DayEvent) {
+    if (!e.series_id) return removeEvent(e);
+    await perform(async () => {
+      if (demo)
+        update((d) => ({ ...d, events: d.events.filter((x) => x.series_id !== e.series_id) }));
+      else
+        await checked(client!.from("events").delete().eq("series_id", e.series_id).eq("user_id", userId));
+    }, "Series removed");
+  }
+  async function respondToPlan(event: DayEvent, action: "accept" | "decline" | "reschedule") {
+    await perform(async () => {
+      if (demo) {
+        update((d) => ({
+          ...d,
+          events: d.events.map((item) => item.id === event.id ? { ...item, plan_status: action === "accept" ? "accepted" : action === "decline" ? "declined" : "reschedule_requested" } : item),
+        }));
+        return;
+      }
+      await checked(client!.rpc("respond_to_plan", { plan_id: event.id, action, note: "" }));
+    }, action === "accept" ? "Plan accepted" : action === "decline" ? "Plan declined" : "Reschedule requested");
   }
   async function saveSettings(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -967,6 +1081,15 @@ export default function Workspace({
       setBusy(false);
     }
   }
+  async function markNotificationRead(id: string) {
+    const notice = data.notifications.find((item) => item.id === id);
+    if (!notice || demo || !client) return;
+    await client.rpc("mark_notification_read", { notification_id: id });
+    setData((current) => current ? {
+      ...current,
+      notifications: current.notifications.map((item) => item.id === id ? { ...item, read_at: item.read_at || new Date().toISOString() } : item),
+    } : current);
+  }
   function exportIcs() {
     const escapeIcs = (value: string) =>
       value.replace(/\\/g, "\\\\").replace(/([,;])/g, "\\$1").replace(/\r?\n/g, "\\n");
@@ -1035,6 +1158,10 @@ export default function Workspace({
               <span>
                 <strong>{n.title}</strong>
                 <span className="note-preview">{n.body || "Open note"}</span>
+                <small className="note-meta">
+                  {n.visibility === "private" ? "Only me" : "Shared"}
+                  {n.remind_at ? ` · ${new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: couple.timezone }).format(new Date(n.remind_at))}` : ""}
+                </small>
               </span>
             </button>
           ))}
@@ -1150,6 +1277,9 @@ export default function Workspace({
           )}
           <div ref={chatEnd} />
         </div>
+        {!!queuedMessages.length && (
+          <p className="outbox-status" role="status">{queuedMessages.length} message{queuedMessages.length === 1 ? "" : "s"} waiting to sync.</p>
+        )}
         <form className="composer" onSubmit={sendMessage}>
           <textarea
             value={draft}
@@ -1335,16 +1465,19 @@ export default function Workspace({
             onClick={() => setNoticeOpen((open) => !open)}
           >
             <Bell size={17} />
-            {!!notices.length && <span className="notification-dot" />}
+            {!!unreadNotificationCount && <span className="notification-dot" />}
           </button>
           {noticeOpen && (
             <div className="notification-popover" role="dialog" aria-label="Notifications">
               <div className="panel-title">
                 <h2>Recent activity</h2>
-                {!!notices.length && <button className="plain" onClick={() => setNotices([])}>Clear</button>}
+                {!!notificationItems.length && <button className="plain" onClick={async () => {
+                  await Promise.all(data.notifications.filter((item) => !item.read_at).map((item) => markNotificationRead(item.id)));
+                  setNotices([]);
+                }}>Clear</button>}
               </div>
-              {notices.length ? notices.map((notice) => (
-                <button className="notification-item" key={notice.id} onClick={() => setNoticeOpen(false)}>
+              {notificationItems.length ? notificationItems.map((notice) => (
+                <button className={"notification-item " + (notice.read ? "read" : "")} key={notice.id} onClick={() => { void markNotificationRead(notice.id); setNoticeOpen(false); }}>
                   <strong>{notice.title}</strong>
                   <span>{notice.body}</span>
                   <small>{new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" }).format(notice.at)}</small>
@@ -1428,6 +1561,27 @@ export default function Workspace({
                   <Plus size={16} /> Add busy time
                 </button>
               </div>
+              {setupOpen && partner && (
+                <section className="setup-panel">
+                  <div>
+                    <span className="meta">A gentle first step</span>
+                    <h2>Find your first shared moment.</h2>
+                    <p className="muted">Set your rhythm, add one busy block, then confirm the day together.</p>
+                  </div>
+                  <div className="setup-steps">
+                    <button className="setup-step" onClick={() => { setView("settings"); finishSetup(); }}>
+                      <strong>1</strong><span>Set your shared hours</span>
+                    </button>
+                    <button className="setup-step" onClick={() => openModal({ kind: "event" })}>
+                      <strong>2</strong><span>Add your busy time</span>
+                    </button>
+                    <button className="setup-step" onClick={() => { void toggleReady(); finishSetup(); }}>
+                      <strong>3</strong><span>Confirm this day</span>
+                    </button>
+                  </div>
+                  <button className="plain" onClick={finishSetup}>I’ll explore first</button>
+                </section>
+              )}
               <div className="calendar-toolbar">
                 <div className="date-controls">
                   <button
@@ -2212,14 +2366,41 @@ export default function Workspace({
                   {modal.event.shared ? "Planned by" : "Busy time for"}{" "}
                   {name(modal.event.user_id)}
                 </p>
+                {modal.event.shared && (modal.event.plan_status || "accepted") === "proposed" && modal.event.user_id !== userId && (
+                  <div className="plan-response">
+                    <p className="meta">Your partner proposed this moment. What feels right?</p>
+                    <div className="dialog-actions">
+                      <button className="btn dark" disabled={busy} onClick={() => void respondToPlan(modal.event!, "accept")}>Accept plan</button>
+                      <button className="plain" disabled={busy} onClick={() => void respondToPlan(modal.event!, "reschedule")}>Ask to reschedule</button>
+                      <button className="plain muted" disabled={busy} onClick={() => void respondToPlan(modal.event!, "decline")}>Decline</button>
+                    </div>
+                  </div>
+                )}
+                {modal.event.shared && modal.event.user_id === userId && modal.event.plan_status === "proposed" && (
+                  <p className="meta">Waiting for your partner to accept this plan.</p>
+                )}
+                {modal.event.shared && modal.event.plan_status === "reschedule_requested" && (
+                  <p className="meta">Your partner asked to find another time.</p>
+                )}
                 {modal.event.user_id === userId && (
-                  <button
-                    className="btn"
-                    disabled={busy}
-                    onClick={() => removeEvent(modal.event!)}
-                  >
-                    <Trash2 size={15} /> Remove event
-                  </button>
+                  <div className="dialog-actions">
+                    <button
+                      className="btn"
+                      disabled={busy}
+                      onClick={() => removeEvent(modal.event!)}
+                    >
+                      <Trash2 size={15} /> Remove event
+                    </button>
+                    {modal.event.series_id && (
+                      <button
+                        className="plain"
+                        disabled={busy}
+                        onClick={() => removeEventSeries(modal.event!)}
+                      >
+                        Remove whole series
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             ) : (
@@ -2317,6 +2498,23 @@ export default function Workspace({
                         defaultChecked={modal.note?.pinned}
                       />{" "}
                       Keep at the top
+                    </label>
+                    <Choice
+                      name="visibility"
+                      label="Who can see it?"
+                      value={modal.note?.visibility || "shared"}
+                      options={[
+                        { value: "shared", label: "Both of us" },
+                        { value: "private", label: "Only me" },
+                      ]}
+                    />
+                    <label>
+                      Remind me (optional)
+                      <input
+                        name="remind_at"
+                        type="datetime-local"
+                        defaultValue={modal.note?.remind_at ? new Date(modal.note.remind_at).toISOString().slice(0, 16) : ""}
+                      />
                     </label>
                   </>
                 )}

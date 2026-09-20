@@ -19,6 +19,11 @@ export type DayEvent = {
   start_min: number;
   end_min: number;
   shared: boolean;
+  series_id?: string | null;
+  series_rule?: string | null;
+  plan_status?: "none" | "proposed" | "accepted" | "reschedule_requested" | "declined" | "completed";
+  plan_note?: string | null;
+  hold_expires_at?: string | null;
 };
 export type DayReady = { couple_id: string; user_id: string; day: string };
 export type Task = {
@@ -46,6 +51,8 @@ export type Note = {
   title: string;
   body: string;
   pinned: boolean;
+  visibility?: "shared" | "private";
+  remind_at?: string | null;
   created_at: string;
 };
 export type Message = {
@@ -72,6 +79,17 @@ export type MessageRead = {
   user_id: string;
   last_read_at: string;
 };
+export type AppNotification = {
+  id: string;
+  couple_id: string | null;
+  user_id: string;
+  type: string;
+  title: string;
+  body: string;
+  related_id: string | null;
+  read_at: string | null;
+  created_at: string;
+};
 export type Data = {
   couple: Couple;
   profiles: Profile[];
@@ -81,6 +99,7 @@ export type Data = {
   notes: Note[];
   messages: Message[];
   messageReads: MessageRead[];
+  notifications: AppNotification[];
 };
 export const money = (n: number) =>
   new Intl.NumberFormat("en-US").format(n).replaceAll(",", " ") + " ₸";

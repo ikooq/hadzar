@@ -189,5 +189,6 @@ export function demoData(day: string): Data {
       { couple_id: "demo", user_id: "azhar", last_read_at: stamp(12) },
       { couple_id: "demo", user_id: "ilias", last_read_at: stamp(12) },
     ],
+    notifications: [],
   };
 }

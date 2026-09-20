@@ -6,6 +6,7 @@ const migration = async (name) => readFile(new URL(`../supabase/migrations/${nam
 const repair = await migration('202609190002_repair_pair_requests');
 const improvements = await migration('202609200001_product_improvements');
 const focusIntegrity = await migration('202609210001_focus_integrity');
+const sharedPlans = await migration('202609220001_shared_plans_notifications');
 const db = new PGlite();
 const uid = (n) => `00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 async function asUser(n) {
@@ -22,6 +23,7 @@ try {
   await db.exec(repair);
   await db.exec(improvements);
   await db.exec(focusIntegrity);
+  await db.exec(sharedPlans);
   await db.exec(repair);
   for (let n=1;n<=16;n++) {
     await db.query('insert into auth.users values($1)',[uid(n)]);
