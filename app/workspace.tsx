@@ -988,9 +988,14 @@ export default function Workspace({
     e.preventDefault();
     if (!client || demo) return;
     const form = new FormData(e.currentTarget);
+    const currentPassword = String(form.get("current_password") || "");
     const password = String(form.get("new_password") || "");
     const confirmation = String(form.get("confirm_password") || "");
     setAccountError("");
+    if (currentPassword.length < 8) {
+      setAccountError("Enter your current password.");
+      return;
+    }
     if (password.length < 8) {
       setAccountError("Use at least 8 characters.");
       return;
@@ -1001,9 +1006,7 @@ export default function Workspace({
     }
     setBusy(true);
     try {
-      const reauth = await client.auth.reauthenticate();
-      if (reauth.error) throw reauth.error;
-      const result = await client.auth.updateUser({ password });
+      const result = await client.auth.updateUser({ password, current_password: currentPassword });
       if (result.error) throw result.error;
       e.currentTarget.reset();
       toast.success("Password updated");
@@ -1073,8 +1076,6 @@ export default function Workspace({
     setBusy(true);
     setAccountError("");
     try {
-      const reauth = await client.auth.reauthenticate();
-      if (reauth.error) throw reauth.error;
       const result = await client.rpc("delete_my_account");
       if (result.error) throw result.error;
       await client.auth.signOut();
@@ -1091,8 +1092,6 @@ export default function Workspace({
     setBusy(true);
     setAccountError("");
     try {
-      const reauth = await client.auth.reauthenticate();
-      if (reauth.error) throw reauth.error;
       const result = await client.rpc("leave_pair");
       if (result.error) throw result.error;
       await client.auth.signOut();
@@ -2110,6 +2109,10 @@ export default function Workspace({
                 </div>
                 {!demo && (
                   <form className="password-form" onSubmit={savePassword}>
+                    <label>
+                      Current password
+                      <input name="current_password" type="password" minLength={8} maxLength={128} autoComplete="current-password" required />
+                    </label>
                     <label>
                       <span><KeyRound size={14} /> New password</span>
                       <input name="new_password" type="password" minLength={8} maxLength={128} autoComplete="new-password" required />
