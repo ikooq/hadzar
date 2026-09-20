@@ -107,6 +107,7 @@ export function demoData(day: string): Data {
         penalty: 2500,
         accepted_at: stamp(8),
         completed_at: null,
+        confirmed_at: null,
         paid_at: null,
         created_at: stamp(8),
       },
@@ -121,6 +122,7 @@ export function demoData(day: string): Data {
         penalty: 3000,
         accepted_at: stamp(8),
         completed_at: null,
+        confirmed_at: null,
         paid_at: null,
         created_at: stamp(8),
       },
@@ -176,6 +178,10 @@ export function demoData(day: string): Data {
         body: "Yes. I’ll bring us coffee ☕",
         created_at: stamp(12),
       },
+    ],
+    messageReads: [
+      { couple_id: "demo", user_id: "azhar", last_read_at: stamp(12) },
+      { couple_id: "demo", user_id: "ilias", last_read_at: stamp(12) },
     ],
   };
 }

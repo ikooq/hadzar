@@ -25,6 +25,8 @@ import {
   Send,
   LogOut,
   Copy,
+  Download,
+  KeyRound,
   Trash2,
   Users,
   Link2,
@@ -65,7 +67,7 @@ import {
 } from "@/lib/types";
 import { sharedWindows } from "@/lib/schedule";
 import { pairRequestError } from "@/lib/pair-requests";
-import { PairRequestList } from "./pair-request-list";
+import { OutgoingPairRequestList, PairRequestList } from "./pair-request-list";
 
 type View = "schedule" | "tasks" | "penalties" | "notes" | "chat" | "settings";
 type Modal = {
@@ -159,6 +161,7 @@ export default function Workspace({
     [older, setOlder] = useState<Message[]>([]),
     [hasOlder, setHasOlder] = useState(true),
     [chatBusy, setChatBusy] = useState(false);
+  const [accountError, setAccountError] = useState("");
   const chatEnd = useRef<HTMLDivElement>(null),
     chatScroll = useRef<HTMLDivElement>(null),
     nearBottom = useRef(true);
@@ -225,9 +228,14 @@ export default function Workspace({
     (n.title + " " + n.body).toLowerCase().includes(noteSearch.toLowerCase()),
   );
   const incomingRequests = requests.filter((request) => request.recipient_id === userId);
+  const outgoingRequests = requests.filter((request) => request.sender_id === userId);
   const messages = [...older, ...data.messages].filter(
     (m, i, a) => a.findIndex((x) => x.id === m.id) === i,
   );
+  const readMarker = data.messageReads.find((entry) => entry.user_id === userId)?.last_read_at;
+  const unreadMessages = messages.filter(
+    (message) => message.sender_id !== userId && (!readMarker || message.created_at > readMarker),
+  ).length;
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 30000);
     return () => clearInterval(id);
@@ -236,6 +244,28 @@ export default function Workspace({
     if (nearBottom.current)
       chatEnd.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [data.messages.length, view]);
+  useEffect(() => {
+    if (view !== "chat" || !messages.length || demo) return;
+    const latest = messages[messages.length - 1]?.created_at;
+    if (!latest || (readMarker && latest <= readMarker)) return;
+    void client!
+      .from("message_reads")
+      .upsert(
+        { couple_id: couple.id, user_id: userId, last_read_at: latest },
+        { onConflict: "couple_id,user_id" },
+      )
+      .then((result) => {
+        if (result.error) return;
+        setData((current) => (current ? {
+          ...current,
+          messageReads: [
+            ...current.messageReads.filter((entry) => entry.user_id !== userId),
+            { couple_id: couple.id, user_id: userId, last_read_at: latest },
+          ],
+        } : current));
+      });
+  // The message array is intentionally included so a newly received message is marked read.
+  }, [view, messages.length, demo, client, couple.id, userId, readMarker, messages, setData]);
   function changeDay(next: string) {
     setChosenWindow(0);
     setDay(next);
@@ -367,11 +397,13 @@ export default function Workspace({
                       ? x
                       : {
                           ...x,
-                          [action === "accept"
-                            ? "accepted_at"
-                            : action === "complete"
-                              ? "completed_at"
-                              : "paid_at"]: new Date().toISOString(),
+                           [action === "accept"
+                             ? "accepted_at"
+                             : action === "complete"
+                               ? "completed_at"
+                               : action === "confirm"
+                                 ? "confirmed_at"
+                                 : "paid_at"]: new Date().toISOString(),
                         },
                   ),
           }));
@@ -385,7 +417,19 @@ export default function Workspace({
           ? "Promise kept."
           : action === "accept"
             ? "Commitment accepted"
-            : "Invitation declined",
+            : action === "confirm"
+              ? "Completion confirmed"
+              : "Invitation declined",
+      false,
+    );
+  }
+  async function cancelRequest(requestId: string) {
+    await perform(
+      async () => {
+        const result = await client!.rpc("cancel_pair_request", { request_id: requestId });
+        if (result.error) throw pairRequestError(result.error);
+      },
+      "Request cancelled",
       false,
     );
   }
@@ -567,6 +611,7 @@ export default function Workspace({
           due_at,
           accepted_at: assignee_id === userId ? new Date().toISOString() : null,
           completed_at: null,
+          confirmed_at: assignee_id === userId ? new Date().toISOString() : null,
           paid_at: null,
           created_at: new Date().toISOString(),
         };
@@ -668,6 +713,68 @@ export default function Workspace({
       false,
     );
   }
+  async function savePassword(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!client || demo) return;
+    const form = new FormData(e.currentTarget);
+    const password = String(form.get("new_password") || "");
+    const confirmation = String(form.get("confirm_password") || "");
+    setAccountError("");
+    if (password.length < 8) {
+      setAccountError("Use at least 8 characters.");
+      return;
+    }
+    if (password !== confirmation) {
+      setAccountError("The passwords do not match.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await client.auth.updateUser({ password });
+      if (result.error) throw result.error;
+      e.currentTarget.reset();
+      toast.success("Password updated");
+    } catch (error) {
+      setAccountError(error instanceof Error ? error.message : "Could not update your password.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  function exportData() {
+    const payload = {
+      exported_at: new Date().toISOString(),
+      profile: me,
+      partner: partner || null,
+      shared_space: couple,
+      events: data.events,
+      commitments: data.tasks,
+      notes: data.notes,
+      messages: data.messages,
+    };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `hadzar-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    toast.success("Your hadzar data is ready to download");
+  }
+  async function deleteAccount() {
+    if (demo || !client) return;
+    if (!window.confirm("Delete your account and all spaces, messages, notes and commitments connected to it? This cannot be undone.")) return;
+    setBusy(true);
+    setAccountError("");
+    try {
+      const result = await client.rpc("delete_my_account");
+      if (result.error) throw result.error;
+      await client.auth.signOut();
+      toast.success("Your account was deleted");
+    } catch (error) {
+      setAccountError(error instanceof Error ? error.message : "Could not delete your account.");
+    } finally {
+      setBusy(false);
+    }
+  }
   function notesPanel(full = false) {
     return (
       <section className={"notes-panel " + (full ? "full" : "")}>
@@ -730,16 +837,19 @@ export default function Workspace({
   function chatPanel(full = false) {
     return (
       <section className={"chat-panel " + (full ? "full" : "")}>
-        <div className="panel-title">
-          <div>
-            <h2>Just us</h2>
+          <div className="panel-title">
+            <div>
+              <h2>Just us</h2>
             <p className="meta">
               {partner
                 ? `${partner.name} & you`
                 : "Your conversation starts here"}
             </p>
-          </div>
-          <MessageCircle size={19} strokeWidth={1.5} />
+            </div>
+            <span className="panel-indicator">
+              <MessageCircle size={19} strokeWidth={1.5} />
+              {unreadMessages > 0 && <span className="count live-count">{unreadMessages}</span>}
+            </span>
         </div>
         <div
           className="messages"
@@ -870,8 +980,11 @@ export default function Workspace({
             )}
             {t.completed_at && (
               <span className="status">
-                <Check size={13} /> Complete
+                <Check size={13} /> {t.confirmed_at ? "Confirmed" : "Complete"}
               </span>
+            )}
+            {t.completed_at && !t.confirmed_at && t.creator_id !== t.assignee_id && (
+              <span className="status">Waiting for confirmation</span>
             )}
           </div>
           <h3>{t.title}</h3>
@@ -906,6 +1019,20 @@ export default function Workspace({
               )}
             </div>
           )}
+          {t.creator_id === userId &&
+            t.assignee_id !== userId &&
+            !!t.completed_at &&
+            !t.confirmed_at && (
+              <div className="task-actions">
+                <button
+                  className="plain"
+                  disabled={busy}
+                  onClick={() => taskAction(t, "confirm")}
+                >
+                  <CheckCheck size={15} /> Confirm completion
+                </button>
+              </div>
+            )}
         </div>
         <div className="commitment-terms">
           <span className={late ? "error" : ""}>
@@ -1477,6 +1604,34 @@ export default function Workspace({
                   Save profile
                 </button>
               </form>
+              <section className="settings-form">
+                <h2>Your account</h2>
+                <p className="meta">Keep a copy of your shared space or update the password used to sign in.</p>
+                <div className="account-actions">
+                  <button type="button" className="btn" onClick={exportData}>
+                    <Download size={15} /> Export my data
+                  </button>
+                </div>
+                {!demo && (
+                  <form className="password-form" onSubmit={savePassword}>
+                    <label>
+                      <span><KeyRound size={14} /> New password</span>
+                      <input name="new_password" type="password" minLength={8} maxLength={128} autoComplete="new-password" required />
+                    </label>
+                    <label>
+                      Confirm new password
+                      <input name="confirm_password" type="password" minLength={8} maxLength={128} autoComplete="new-password" required />
+                    </label>
+                    <button className="btn" disabled={busy}>Update password</button>
+                  </form>
+                )}
+                {accountError && <p className="error" role="alert">{accountError}</p>}
+                {!demo && (
+                  <button type="button" className="plain danger-action" disabled={busy} onClick={() => void deleteAccount()}>
+                    <Trash2 size={15} /> Delete account and shared data
+                  </button>
+                )}
+              </section>
               <form className="settings-form" onSubmit={saveSettings}>
                 <h2>Time for two</h2>
                 <Choice
@@ -1619,7 +1774,13 @@ export default function Workspace({
                 ? "Tasks"
                 : n.id === "schedule"
                   ? "Schedule"
-                  : n.label}
+                : n.label}
+              {n.id === "chat" && unreadMessages > 0 && (
+                <span className="nav-badge">{unreadMessages}</span>
+              )}
+              {n.id === "settings" && incomingRequests.length > 0 && (
+                <span className="nav-badge">{incomingRequests.length}</span>
+              )}
             </span>
           </button>
         ))}
@@ -1666,7 +1827,14 @@ export default function Workspace({
             </DialogDescription>
             {modal?.kind === "requests" ? (
               <div className="dialog-body">
-                <PairRequestList requests={incomingRequests} busy={busy} onRespond={respondToRequest} />
+                <div>
+                  <h3>Incoming</h3>
+                  <PairRequestList requests={incomingRequests} busy={busy} onRespond={respondToRequest} />
+                </div>
+                <div>
+                  <h3>Sent</h3>
+                  <OutgoingPairRequestList requests={outgoingRequests} busy={busy} onCancel={cancelRequest} />
+                </div>
               </div>
             ) : modal?.kind === "invite" ? (
               <div className="dialog-body">

@@ -32,6 +32,7 @@ export type Task = {
   penalty: number;
   accepted_at: string | null;
   completed_at: string | null;
+  confirmed_at: string | null;
   paid_at: string | null;
   created_at: string;
 };
@@ -57,9 +58,16 @@ export type PairRequest = {
   recipient_id: string;
   sender_name: string;
   sender_nickname: string;
+  recipient_name: string | null;
+  recipient_nickname: string | null;
   status: "pending" | "accepted" | "declined";
   created_at: string;
   responded_at: string | null;
+};
+export type MessageRead = {
+  couple_id: string;
+  user_id: string;
+  last_read_at: string;
 };
 export type Data = {
   couple: Couple;
@@ -69,6 +77,7 @@ export type Data = {
   tasks: Task[];
   notes: Note[];
   messages: Message[];
+  messageReads: MessageRead[];
 };
 export const money = (n: number) =>
   new Intl.NumberFormat("en-US").format(n).replaceAll(",", " ") + " ₸";
