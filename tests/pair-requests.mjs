@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 
 const migration = async (name) => readFile(new URL(`../supabase/migrations/${name}.sql`, import.meta.url), 'utf8');
 const repair = await migration('202609190002_repair_pair_requests');
+const improvements = await migration('202609200001_product_improvements');
 const db = new PGlite();
 const uid = (n) => `00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 async function asUser(n) {
@@ -18,6 +19,7 @@ try {
   await db.exec(await migration('202609140001_hadzar'));
   // The reported production state: base schema exists but the request migration does not.
   await db.exec(repair);
+  await db.exec(improvements);
   await db.exec(repair);
   for (let n=1;n<=16;n++) {
     await db.query('insert into auth.users values($1)',[uid(n)]);

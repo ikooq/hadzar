@@ -57,6 +57,10 @@ export async function loadData(
       .eq("couple_id", cid)
       .order("created_at", { ascending: false })
       .limit(100),
+    client
+      .from("message_reads")
+      .select("*")
+      .eq("couple_id", cid),
   ]);
   for (const r of results) if (r.error) throw r.error;
   return {
@@ -67,5 +71,6 @@ export async function loadData(
     tasks: results[3].data!,
     notes: results[4].data!,
     messages: results[5].data!.reverse(),
+    messageReads: results[6].data || [],
   } as Data;
 }

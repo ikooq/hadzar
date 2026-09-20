@@ -8,7 +8,7 @@ import { profileFor, loadData, pendingPairRequests } from "@/lib/data";
 import { dayInZone, type Data, type PairRequest, type Profile } from "@/lib/types";
 import { demoData } from "@/lib/demo";
 import { pairRequestError } from "@/lib/pair-requests";
-import { PairRequestList } from "./pair-request-list";
+import { OutgoingPairRequestList, PairRequestList } from "./pair-request-list";
 export default function Hadzar() {
   const [client, setClient] = useState<SupabaseClient | null>(null),
     [user, setUser] = useState<User | null>(null),
@@ -125,6 +125,37 @@ export default function Hadzar() {
     }, 8000);
     return () => clearInterval(timer);
   }, [user, demo, recovery, reload]);
+  useEffect(() => {
+    if (!client || !user || demo || recovery) return;
+    const refresh = () => void reload(true);
+    let channel = client.channel(`hadzar-live-${user.id}`)
+      .on("postgres_changes", {
+        event: "*",
+        schema: "public",
+        table: "pair_requests",
+        filter: `recipient_id=eq.${user.id}`,
+      }, refresh)
+      .on("postgres_changes", {
+        event: "*",
+        schema: "public",
+        table: "pair_requests",
+        filter: `sender_id=eq.${user.id}`,
+      }, refresh);
+    if (data?.couple.id) {
+      for (const table of ["messages", "tasks", "events", "schedule_days", "notes"] as const) {
+        channel = channel.on("postgres_changes", {
+          event: "*",
+          schema: "public",
+          table,
+          filter: `couple_id=eq.${data.couple.id}`,
+        }, refresh);
+      }
+    }
+    void channel.subscribe();
+    return () => {
+      void client.removeChannel(channel);
+    };
+  }, [client, user, demo, recovery, data?.couple.id, reload]);
   async function act(fn: () => Promise<unknown>) {
     setBusy(true);
     setError("");
@@ -147,6 +178,10 @@ export default function Hadzar() {
       action === "accept" ? "accept_pair_request" : "decline_pair_request",
       { request_id: requestId },
     );
+    if (r.error) throw pairRequestError(r.error);
+  }
+  async function cancelPairRequest(requestId: string) {
+    const r = await client!.rpc("cancel_pair_request", { request_id: requestId });
     if (r.error) throw pairRequestError(r.error);
   }
   function preview() {
@@ -271,6 +306,12 @@ export default function Hadzar() {
               busy={busy}
               onRespond={(id, action) => act(() => respondToRequest(id, action))}
             /> : <p className="muted">Partner requests are temporarily unavailable. You can still join by invitation link below.</p>}
+            <h2>Sent requests</h2>
+            <OutgoingPairRequestList
+              requests={requests.filter(request => request.sender_id === user?.id)}
+              busy={busy}
+              onCancel={(id) => act(() => cancelPairRequest(id))}
+            />
           </section>
           <form onSubmit={e => {
             e.preventDefault();

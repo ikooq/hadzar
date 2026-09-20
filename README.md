@@ -6,18 +6,18 @@ A shared space for two people with busy lives. English UI, individual email/pass
 
 The app and Supabase database schema are implemented. A clearly labelled, in-memory sample workspace is available while the backend is not configured. It is not a substitute for registration: no sample data is saved and no accounts are faked.
 
-Live email delivery, signup, password recovery, and cross-device synchronization must be verified after a real Supabase project is connected. Sites currently hosts an owner-private review version; opening registration to other couples also requires changing the Site audience to public. Application data remains private through database Row Level Security.
+Live email delivery and password recovery still depend on the connected Supabase project's email settings. The published Site is public, while application data remains private through database Row Level Security. Realtime updates are enabled when the Supabase project includes the `supabase_realtime` publication.
 
 ## Connect Supabase
 
 1. Create a Supabase project at https://supabase.com/dashboard.
-2. For a new database, run `supabase/migrations/202609140001_hadzar.sql` once, followed by `supabase/migrations/202609190002_repair_pair_requests.sql`. For an existing hadzar database, run only the repair file. It installs missing request functions, supports existing solo spaces, and refreshes the API schema cache. This repair is safe to rerun whether or not the earlier `202609190001_pair_requests.sql` was applied. Publishing the website does not apply external Supabase migrations.
+2. For a new database, run `supabase/migrations/202609140001_hadzar.sql` once, followed by `supabase/migrations/202609190002_repair_pair_requests.sql` and `supabase/migrations/202609200001_product_improvements.sql`. For an existing hadzar database, run the repair file and the product improvements file. They are safe to rerun and refresh the API schema cache. Publishing the website does not apply external Supabase migrations.
 3. In Authentication, enable Email and password, require email confirmation, and set a minimum password length of 8 or greater.
 4. Set Site URL to the final hadzar URL. Allow that origin's root, invitation query URLs, and `/?recovery=1` as authentication redirect URLs. For local development allow `http://localhost:5173/**` as well. Use exact production-origin patterns, not an unrestricted global wildcard.
 5. Configure custom SMTP for confirmations and password resets before public registration. Supabase's default mail service is for testing and limits recipients/delivery.
 6. Copy the Project URL and Publishable key (or legacy anon key). No service-role key is used by this app.
 7. Set `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` in `.env` for local development. Set the same two hosted runtime values through Sites before publishing the connected version. The config endpoint deliberately rejects privileged keys.
-8. Register two test accounts, confirm both emails, create a pair with one, create its invitation link, and join using the second. Test a third unrelated account to confirm pair isolation. Verify password reset and reloading saved data on another device before inviting real couples.
+8. Register two test accounts, confirm both emails, create a pair with one, create its invitation link, and join using the second. Test a third unrelated account to confirm pair isolation. Verify password reset, realtime updates and reloading saved data on another device before inviting real couples.
 
 Supabase documentation: https://supabase.com/docs/guides/auth/passwords and https://supabase.com/docs/guides/database/postgres/row-level-security.
 
@@ -30,7 +30,8 @@ Supabase documentation: https://supabase.com/docs/guides/auth/passwords and http
 - Shared plans recheck both confirmations and overlapping events in the database before saving.
 - Commitments include a responsible person, exact deadline and integer KZT amount. A task assigned to the partner requires their acceptance. Server functions protect deadline, amount, acceptance, completion and recorded-payment timestamps.
 - Late accepted commitments appear as penalties, including those completed after the deadline. Recording payment is bookkeeping only; no bank or payment processor is connected.
-- Notes can be created, edited, pinned and deleted by either partner. Messages preserve direction and sender identity. Data refreshes every eight seconds while the page is visible. Chat loads the latest 100 messages and can load earlier history.
+- Notes can be created, edited, pinned and deleted by either partner. Messages preserve direction and sender identity. Shared records refresh through Supabase Realtime with an eight-second fallback while the page is visible. Chat loads the latest 100 messages, can load earlier history, and shows unread counts until the conversation is opened.
+- Sent pair requests can be cancelled. Completed commitments can be confirmed by the person who created them. Settings supports password changes, JSON export, and account deletion.
 - Desktop keeps notes and chat in a right column. Mobile uses six tabs. The sample workspace is ephemeral; real records live in Supabase, not browser storage. Supabase manages the login session in browser storage.
 - No external calendar synchronization, automatic bank debit or push notifications are claimed or configured.
 

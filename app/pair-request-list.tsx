@@ -22,3 +22,25 @@ export function PairRequestList({ requests, busy, onRespond }: {
     </div>
   );
 }
+
+export function OutgoingPairRequestList({ requests, busy, onCancel }: {
+  requests: PairRequest[];
+  busy: boolean;
+  onCancel: (requestId: string) => Promise<void>;
+}) {
+  return (
+    <div className="request-list outgoing-requests">
+      {requests.length ? requests.map((request) => (
+        <div className="request-row" key={request.id}>
+          <div>
+            <strong>{request.recipient_name || "Your partner"}</strong>
+            <span className="meta">@{request.recipient_nickname || "nickname"} · Pending</span>
+          </div>
+          <button className="plain" disabled={busy} onClick={() => void onCancel(request.id)}>
+            Cancel
+          </button>
+        </div>
+      )) : <p className="muted">No sent requests.</p>}
+    </div>
+  );
+}
