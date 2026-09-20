@@ -342,7 +342,13 @@ export default function Workspace({
   }
   async function checked(p: PromiseLike<{ error: unknown }>) {
     const r = await p;
-    if (r.error) throw r.error;
+    if (r.error) {
+      const issue = r.error as { code?: string; message?: string };
+      if (["PGRST202", "PGRST205", "42P01", "42883"].includes(issue.code || "")) {
+        throw new Error("This feature needs the latest hadzar Supabase migration. Ask the project owner to run the newest migration file.");
+      }
+      throw r.error;
+    }
   }
   function update(fn: (d: Data) => Data) {
     setData((d) => (d ? fn(d) : d));
