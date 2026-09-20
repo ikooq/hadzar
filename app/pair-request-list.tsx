@@ -34,11 +34,13 @@ export function OutgoingPairRequestList({ requests, busy, onCancel }: {
         <div className="request-row" key={request.id}>
           <div>
             <strong>{request.recipient_name || "Your partner"}</strong>
-            <span className="meta">@{request.recipient_nickname || "nickname"} · Pending</span>
+            <span className="meta">@{request.recipient_nickname || "nickname"} · {request.status[0].toUpperCase() + request.status.slice(1)}</span>
           </div>
-          <button className="plain" disabled={busy} onClick={() => void onCancel(request.id)}>
-            Cancel
-          </button>
+          {request.status === "pending" && (
+            <button className="plain" disabled={busy} onClick={() => void onCancel(request.id)}>
+              Cancel
+            </button>
+          )}
         </div>
       )) : <p className="muted">No sent requests.</p>}
     </div>

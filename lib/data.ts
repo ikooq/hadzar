@@ -13,8 +13,8 @@ export async function pendingPairRequests(client: SupabaseClient) {
   const r = await client
     .from("pair_requests")
     .select("*")
-    .eq("status", "pending")
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(50);
   // Request availability must not stop an existing workspace loading.
   if (r.error) {
     if (r.error.code === "42P01" || r.error.code === "PGRST205")

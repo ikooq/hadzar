@@ -227,7 +227,7 @@ export default function Workspace({
   const visibleNotes = data.notes.filter((n) =>
     (n.title + " " + n.body).toLowerCase().includes(noteSearch.toLowerCase()),
   );
-  const incomingRequests = requests.filter((request) => request.recipient_id === userId);
+  const incomingRequests = requests.filter((request) => request.recipient_id === userId && request.status === "pending");
   const outgoingRequests = requests.filter((request) => request.sender_id === userId);
   const messages = [...older, ...data.messages].filter(
     (m, i, a) => a.findIndex((x) => x.id === m.id) === i,
@@ -1120,7 +1120,7 @@ export default function Workspace({
                 <p>Invite your partner to start finding time together.</p>
                 <p>Your nickname: @{me.nickname}</p>
                 {!requestsAvailable && <p role="status">Partner requests are temporarily unavailable. Invite by link while we reconnect them.</p>}
-                {requests.some(request => request.sender_id === userId) && <p role="status">Request sent · waiting for your partner to accept.</p>}
+                {requests.some(request => request.sender_id === userId && request.status === "pending") && <p role="status">Request sent · waiting for your partner to accept.</p>}
               </div>
               <div className="invite-actions">
                 <button
