@@ -28,10 +28,13 @@ Supabase documentation: https://supabase.com/docs/guides/auth/passwords and http
 - Incoming requests also appear before creating a space. Accepting combines solo spaces while keeping their events, notes, messages and commitments. The sender's existing space and shared settings take precedence; if only the recipient has a space, it is retained. Different timezones with existing recipient schedule data must be aligned in Settings before joining. Full pairs cannot be combined.
 - Add busy blocks in the pair's timezone. Both partners must confirm the selected day's schedule before free windows appear. The algorithm unions busy intervals, applies the shared buffer, clips to shared hours, and filters by minimum duration.
 - Shared plans recheck both confirmations and overlapping events in the database before saving.
+- Busy blocks can be repeated for a week, weekdays, or four weekly occurrences. The selected day can also be exported as an `.ics` calendar file without connecting an external calendar account.
 - Commitments include a responsible person, exact deadline and integer KZT amount. A task assigned to the partner requires their acceptance. Server functions protect deadline, amount, acceptance, completion and recorded-payment timestamps.
+- A completed commitment can be confirmed by the person who created it. The schedule includes a small seven-day reflection with shared moments, kept promises and open commitments.
 - Late accepted commitments appear as penalties, including those completed after the deadline. Recording payment is bookkeeping only; no bank or payment processor is connected.
 - Notes can be created, edited, pinned and deleted by either partner. Messages preserve direction and sender identity. Shared records refresh through Supabase Realtime with an eight-second fallback while the page is visible. Chat loads the latest 100 messages, can load earlier history, and shows unread counts until the conversation is opened.
 - Sent pair requests can be cancelled. Completed commitments can be confirmed by the person who created them. Settings supports password changes, JSON export, and account deletion.
+- A person can leave a shared space safely; the remaining partner keeps their account and space. The workspace shows an offline state and pauses writes until the connection returns.
 - Desktop keeps notes and chat in a right column. Mobile uses six tabs. The sample workspace is ephemeral; real records live in Supabase, not browser storage. Supabase manages the login session in browser storage.
 - No external calendar synchronization, automatic bank debit or push notifications are claimed or configured.
 
