@@ -30,7 +30,7 @@ Supabase documentation: https://supabase.com/docs/guides/auth/passwords and http
 - Shared plans recheck both confirmations and overlapping events in the database before saving.
 - Busy blocks can be repeated for a week, weekdays, or four weekly occurrences. The selected day can also be exported as an `.ics` calendar file without connecting an external calendar account.
 - Busy event changes invalidate both schedule confirmations for that day. The schedule also surfaces the three longest confirmed windows in the next seven days.
-- Shared-window proposals use a short database hold while they are saved, then keep an explicit proposed/accepted/reschedule/declined state so both partners can respond without double-booking the moment.
+- Shared-window proposals are serialized by a database lock around the overlap check and insert, then keep an explicit proposed/accepted/reschedule/declined state so both partners can respond without double-booking the moment.
 - Busy blocks carry a series id for daily, weekday, and weekly repeats; a whole series can be removed from the event dialog. Notes can be shared or private, can carry a reminder time, and due reminders appear in the activity panel.
 - Commitments include a responsible person, exact deadline and integer KZT amount. A task assigned to the partner requires their acceptance. Server functions protect deadline, amount, acceptance, completion and recorded-payment timestamps. Declines, cancellations and waived penalties remain in history instead of disappearing.
 - A completed commitment can be confirmed by the person who created it. The schedule includes a small seven-day reflection with shared moments, kept promises and open commitments.
@@ -39,7 +39,7 @@ Supabase documentation: https://supabase.com/docs/guides/auth/passwords and http
 - Sent pair requests can be cancelled and show a distinct cancelled status. Completed commitments can be confirmed by the person who created them. Settings supports password changes, a complete JSON export, and account deletion.
 - A person can leave a shared space safely; the remaining partner keeps their account and space. The workspace shows an offline state and pauses writes until the connection returns.
 - Important request, message and commitment changes appear in a quiet in-app activity panel. The site includes a small PWA manifest and shell cache for installable mobile use; writes still require a live connection.
-- Activity items are persisted in Supabase and update in realtime. Chat messages written while offline wait in a local outbox and are retried after reconnection with a visible sync count.
+- Activity items are persisted in Supabase and update in realtime. Chat messages written while offline wait in a user-scoped local outbox, keep their client id for idempotent retries, and show a visible sync count after reconnection.
 - New accounts get a short first-run setup panel that points to shared hours, a first busy block, and day confirmation without blocking exploration.
 - Desktop keeps notes and chat in a right column. Mobile uses six tabs. The sample workspace is ephemeral; real records live in Supabase, not browser storage. Supabase manages the login session in browser storage.
 - No external calendar synchronization, automatic bank debit or push notifications are claimed or configured.
@@ -67,6 +67,8 @@ On Windows hosts whose npm launcher cannot resolve paths containing spaces, run 
 Database tests run the actual migration on embedded PostgreSQL (PGlite) with Supabase-shaped auth roles. They check membership, invitation rotation/reuse, cross-pair RLS, impersonation, task ownership and consent, payment guards, and shared-window validation. They do not emulate Supabase Auth email delivery.
 
 The app is built with React/TypeScript and the Sites Vinext Worker starter. `app/workspace.tsx` contains the six working surfaces; `app/auth-screen.tsx` contains account flows; `app/hadzar.tsx` coordinates session and onboarding; `lib/schedule.ts` implements window detection.
+
+The root `proxy.ts` adds security headers to every application response. Keep the live deployment check in release validation: verify those headers, `/api/config`, and the Supabase schema before inviting real users.
 
 ## Design
 

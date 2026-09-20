@@ -77,7 +77,7 @@ import { OutgoingPairRequestList, PairRequestList } from "./pair-request-list";
 type View = "schedule" | "tasks" | "penalties" | "notes" | "chat" | "settings";
 type WeekCandidate = { day: string; start: number; end: number };
 type LocalNotice = { id: string; title: string; body: string; at: number; read?: boolean };
-type QueuedMessage = { id: string; body: string; created_at: string };
+type QueuedMessage = { id: string; body: string; created_at: string; sender_id: string };
 type Modal = {
   kind: "event" | "task" | "note" | "invite" | "plan" | "request" | "requests";
   note?: Note;
@@ -175,7 +175,15 @@ export default function Workspace({
     [notices, setNotices] = useState<LocalNotice[]>([]),
     [queuedMessages, setQueuedMessages] = useState<QueuedMessage[]>(() => {
       if (typeof window === "undefined") return [];
-      try { return JSON.parse(localStorage.getItem(`hadzar-outbox-${data.couple.id}`) || "[]"); } catch { return []; }
+      try {
+        const parsed = JSON.parse(localStorage.getItem(`hadzar-outbox-${data.couple.id}-${userId}`) || "[]");
+        return Array.isArray(parsed)
+          ? parsed.filter((item): item is QueuedMessage =>
+              !!item && typeof item.id === "string" && typeof item.body === "string"
+                && typeof item.created_at === "string" && typeof item.sender_id === "string",
+            ).slice(0, 100)
+          : [];
+      } catch { return []; }
     }),
     [setupOpen, setSetupOpen] = useState(() =>
       typeof window !== "undefined" && !localStorage.getItem(`hadzar-setup-${data.couple.id}`),
@@ -285,7 +293,7 @@ export default function Workspace({
   }, []);
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const storageKey = `hadzar-note-reminders-${couple.id}`;
+    const storageKey = `hadzar-note-reminders-${couple.id}-${userId}`;
     let delivered: string[] = [];
     try { delivered = JSON.parse(localStorage.getItem(storageKey) || "[]"); } catch { delivered = []; }
     const deliveredSet = new Set(delivered);
@@ -300,18 +308,24 @@ export default function Workspace({
     queueMicrotask(() => setNotices((current) => [...fresh, ...current.filter((notice) => !fresh.some((item) => item.id === notice.id))]));
     const next = [...delivered, ...due.map((note) => note.id)].slice(-100);
     localStorage.setItem(storageKey, JSON.stringify(next));
-  }, [couple.id, data.notes, now]);
+  }, [couple.id, data.notes, now, userId]);
   useEffect(() => {
-    if (typeof window !== "undefined") localStorage.setItem(`hadzar-outbox-${couple.id}`, JSON.stringify(queuedMessages));
-  }, [couple.id, queuedMessages]);
+    if (typeof window !== "undefined") localStorage.setItem(`hadzar-outbox-${couple.id}-${userId}`, JSON.stringify(queuedMessages));
+  }, [couple.id, userId, queuedMessages]);
   useEffect(() => {
     if (!online || demo || !client || !queuedMessages.length) return;
     let active = true;
     void (async () => {
       const remaining: QueuedMessage[] = [];
       for (const message of queuedMessages) {
-        const result = await client.from("messages").insert({ couple_id: couple.id, sender_id: userId, body: message.body });
-        if (result.error) remaining.push(message);
+        const result = await client.from("messages").insert({
+          id: message.id,
+          couple_id: couple.id,
+          sender_id: message.sender_id,
+          body: message.body,
+          created_at: message.created_at,
+        });
+        if (result.error && result.error.code !== "23505") remaining.push(message);
       }
       if (active) {
         if (remaining.length !== queuedMessages.length) {
@@ -631,7 +645,12 @@ export default function Workspace({
       return;
     }
     if (!online && !demo) {
-      setQueuedMessages((current) => [...current, { id: crypto.randomUUID(), body, created_at: new Date().toISOString() }]);
+      setQueuedMessages((current) => [...current, {
+        id: crypto.randomUUID(),
+        body,
+        created_at: new Date().toISOString(),
+        sender_id: userId,
+      }].slice(-100));
       setDraft("");
       toast.success("Saved to your outbox · it will send when you reconnect.");
       return;
@@ -766,28 +785,15 @@ export default function Workspace({
           plan_note: "",
         };
         if (demo) update((d) => ({ ...d, events: [...d.events, record] }));
-        else {
-          const hold = await client!.rpc("hold_window", {
+        else await checked(
+          client!.rpc("propose_window", {
             event_day: day,
             start_at: record.start_min,
             end_at: record.end_min,
-            hold_minutes: 10,
-          });
-          if (hold.error) throw hold.error;
-          try {
-            await checked(
-              client!.rpc("propose_window", {
-                event_day: day,
-                start_at: record.start_min,
-                end_at: record.end_min,
-                event_title: record.title,
-                event_note: "",
-              }),
-            );
-          } finally {
-            if (hold.data) await client!.rpc("release_window", { hold_id: hold.data });
-          }
-        }
+            event_title: record.title,
+            event_note: "",
+          }),
+        );
       }
       if (modal?.kind === "note") {
         const record = {
@@ -995,6 +1001,8 @@ export default function Workspace({
     }
     setBusy(true);
     try {
+      const reauth = await client.auth.reauthenticate();
+      if (reauth.error) throw reauth.error;
       const result = await client.auth.updateUser({ password });
       if (result.error) throw result.error;
       e.currentTarget.reset();
@@ -1010,22 +1018,30 @@ export default function Workspace({
     setBusy(true);
     try {
       let events = data.events;
-      let messages = data.messages;
-      let ready = data.ready;
-      if (!demo && client) {
-        const [eventResult, messageResult, readyResult] = await Promise.all([
-          client.from("events").select("*").eq("couple_id", couple.id).order("day").order("start_min"),
-          client.from("messages").select("*").eq("couple_id", couple.id).order("created_at"),
-          client.from("schedule_days").select("*").eq("couple_id", couple.id).order("day"),
-        ]);
-        if (eventResult.error) throw eventResult.error;
-        if (messageResult.error) throw messageResult.error;
-        if (readyResult.error) throw readyResult.error;
-        events = eventResult.data || [];
-        messages = messageResult.data || [];
-        ready = readyResult.data || [];
-      }
-      const payload = {
+    let messages = data.messages;
+    let ready = data.ready;
+    let notifications = data.notifications;
+    let pairRequests = requests;
+    if (!demo && client) {
+      const [eventResult, messageResult, readyResult, notificationResult, requestResult] = await Promise.all([
+        client.from("events").select("*").eq("couple_id", couple.id).order("day").order("start_min"),
+        client.from("messages").select("*").eq("couple_id", couple.id).order("created_at"),
+        client.from("schedule_days").select("*").eq("couple_id", couple.id).order("day"),
+        client.from("notifications").select("*").eq("couple_id", couple.id).order("created_at"),
+        client.from("pair_requests").select("*").order("created_at"),
+      ]);
+      if (eventResult.error) throw eventResult.error;
+      if (messageResult.error) throw messageResult.error;
+      if (readyResult.error) throw readyResult.error;
+      if (notificationResult.error && !["42P01", "PGRST205"].includes(notificationResult.error.code || "")) throw notificationResult.error;
+      if (requestResult.error && !["42P01", "PGRST205"].includes(requestResult.error.code || "")) throw requestResult.error;
+      events = eventResult.data || [];
+      messages = messageResult.data || [];
+      ready = readyResult.data || [];
+      notifications = notificationResult.error ? [] : (notificationResult.data || []);
+      pairRequests = requestResult.error ? [] : (requestResult.data || []);
+    }
+    const payload = {
         exported_at: new Date().toISOString(),
         profile: me,
         partner: partner || null,
@@ -1035,6 +1051,8 @@ export default function Workspace({
         commitments: data.tasks,
         notes: data.notes,
         messages,
+        notifications,
+        pair_requests: pairRequests,
       };
       const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
       const link = document.createElement("a");
@@ -1055,6 +1073,8 @@ export default function Workspace({
     setBusy(true);
     setAccountError("");
     try {
+      const reauth = await client.auth.reauthenticate();
+      if (reauth.error) throw reauth.error;
       const result = await client.rpc("delete_my_account");
       if (result.error) throw result.error;
       await client.auth.signOut();
@@ -1071,6 +1091,8 @@ export default function Workspace({
     setBusy(true);
     setAccountError("");
     try {
+      const reauth = await client.auth.reauthenticate();
+      if (reauth.error) throw reauth.error;
       const result = await client.rpc("leave_pair");
       if (result.error) throw result.error;
       await client.auth.signOut();
