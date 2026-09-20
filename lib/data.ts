@@ -61,11 +61,17 @@ export async function loadData(
       .from("message_reads")
       .select("*")
       .eq("couple_id", cid),
+    client
+      .from("notifications")
+      .select("*")
+      .eq("couple_id", cid)
+      .order("created_at", { ascending: false })
+      .limit(30),
   ]);
   for (const [index, r] of results.entries()) {
     // The live table is installed by the product-improvements migration. Keep
     // existing spaces readable while an older Supabase project is being upgraded.
-    if (index === 6 && (r.error?.code === "42P01" || r.error?.code === "PGRST205")) continue;
+    if ((index === 6 || index === 7) && (r.error?.code === "42P01" || r.error?.code === "PGRST205")) continue;
     if (r.error) throw r.error;
   }
   return {
@@ -77,5 +83,6 @@ export async function loadData(
     notes: results[4].data!,
     messages: results[5].data!.reverse(),
     messageReads: results[6].error ? [] : (results[6].data || []),
+    notifications: results[7].error ? [] : (results[7].data || []),
   } as Data;
 }

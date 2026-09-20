@@ -159,7 +159,7 @@ export default function Hadzar() {
         filter: `sender_id=eq.${user.id}`,
       }, refresh);
     if (data?.couple.id) {
-      for (const table of ["messages", "tasks", "events", "schedule_days", "notes"] as const) {
+      for (const table of ["messages", "tasks", "events", "schedule_days", "notes", "notifications"] as const) {
         channel = channel.on("postgres_changes", {
           event: "*",
           schema: "public",
