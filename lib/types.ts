@@ -34,6 +34,9 @@ export type Task = {
   completed_at: string | null;
   confirmed_at: string | null;
   paid_at: string | null;
+  declined_at: string | null;
+  cancelled_at: string | null;
+  waived_at: string | null;
   created_at: string;
 };
 export type Note = {
@@ -60,7 +63,7 @@ export type PairRequest = {
   sender_nickname: string;
   recipient_name: string | null;
   recipient_nickname: string | null;
-  status: "pending" | "accepted" | "declined";
+  status: "pending" | "accepted" | "declined" | "cancelled";
   created_at: string;
   responded_at: string | null;
 };

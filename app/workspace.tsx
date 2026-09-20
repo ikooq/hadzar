@@ -4,6 +4,7 @@ import {
   useState,
   useEffect,
   useRef,
+  useCallback,
   type Dispatch,
   type SetStateAction,
   type FormEvent,
@@ -34,6 +35,7 @@ import {
   Link2,
   CheckCheck,
   ArrowUpRight,
+  Bell,
 } from "lucide-react";
 import {
   Dialog,
@@ -69,9 +71,12 @@ import {
 } from "@/lib/types";
 import { sharedWindows } from "@/lib/schedule";
 import { pairRequestError } from "@/lib/pair-requests";
+import { friendlyError } from "@/lib/errors";
 import { OutgoingPairRequestList, PairRequestList } from "./pair-request-list";
 
 type View = "schedule" | "tasks" | "penalties" | "notes" | "chat" | "settings";
+type WeekCandidate = { day: string; start: number; end: number };
+type LocalNotice = { id: string; title: string; body: string; at: number };
 type Modal = {
   kind: "event" | "task" | "note" | "invite" | "plan" | "request" | "requests";
   note?: Note;
@@ -162,14 +167,19 @@ export default function Workspace({
     [now, setNow] = useState(() => Date.now()),
     [older, setOlder] = useState<Message[]>([]),
     [hasOlder, setHasOlder] = useState(true),
-    [chatBusy, setChatBusy] = useState(false);
+    [chatBusy, setChatBusy] = useState(false),
+    [weekCandidates, setWeekCandidates] = useState<WeekCandidate[]>([]),
+    [weekLoading, setWeekLoading] = useState(false),
+    [noticeOpen, setNoticeOpen] = useState(false),
+    [notices, setNotices] = useState<LocalNotice[]>([]);
   const [accountError, setAccountError] = useState("");
   const [online, setOnline] = useState(() =>
     typeof navigator === "undefined" ? true : navigator.onLine,
   );
   const chatEnd = useRef<HTMLDivElement>(null),
     chatScroll = useRef<HTMLDivElement>(null),
-    nearBottom = useRef(true);
+    nearBottom = useRef(true),
+    noticeSnapshot = useRef<{ latestMessage: string; pendingRequests: number; tasks: Record<string, string> } | null>(null);
   const couple = data.couple,
     me = data.profiles.find((p) => p.id === userId)!,
     partner = data.profiles.find((p) => p.id !== userId),
@@ -180,8 +190,10 @@ export default function Workspace({
     windows = bothReady ? sharedWindows(allEvents, couple) : [],
     myReady = ready.some((r) => r.user_id === userId),
     shared = allEvents.filter((e) => e.shared);
-  const name = (id: string) =>
-    data.profiles.find((p) => p.id === id)?.name || "Your partner";
+  const name = useCallback(
+    (id: string) => data.profiles.find((p) => p.id === id)?.name || "Your partner",
+    [data.profiles],
+  );
   const color = (id: string) => (id === couple.member_one ? "a" : "b");
   const dateLabel = new Intl.DateTimeFormat("en-GB", {
     weekday: "long",
@@ -226,8 +238,12 @@ export default function Workspace({
       timeZone: couple.timezone,
     }).format(new Date(value));
   };
-  const activeTasks = data.tasks.filter((t) => !t.completed_at),
-    fees = data.tasks.filter((t) => overdue(t, now) && t.penalty > 0),
+  const activeTasks = data.tasks.filter(
+      (t) => !t.completed_at && !t.declined_at && !t.cancelled_at,
+    ),
+    fees = data.tasks.filter(
+      (t) => overdue(t, now) && t.penalty > 0 && !t.waived_at && !t.cancelled_at && !t.declined_at,
+    ),
     unpaid = fees.filter((t) => !t.paid_at);
   const visibleNotes = data.notes.filter((n) =>
     (n.title + " " + n.body).toLowerCase().includes(noteSearch.toLowerCase()),
@@ -281,6 +297,89 @@ export default function Workspace({
       window.removeEventListener("offline", offlineNow);
     };
   }, []);
+  useEffect(() => {
+    if (view !== "schedule") return;
+    const dateForOffset = (offset: number) => {
+      const date = new Date(day + "T12:00:00Z");
+      date.setUTCDate(date.getUTCDate() + offset);
+      return date.toISOString().slice(0, 10);
+    };
+    const days = Array.from({ length: 7 }, (_, index) => dateForOffset(index));
+    let active = true;
+    if (demo) {
+      queueMicrotask(() => {
+        if (active) {
+          const currentDayEvents = data.events.filter((event) => event.day === day);
+          setWeekCandidates(
+            data.ready.filter((r) => r.day === day).length === 2
+              ? sharedWindows(currentDayEvents, couple).map((window) => ({ day, ...window }))
+              : [],
+          );
+        }
+      });
+      return () => { active = false; };
+    }
+    if (!client || !couple.id || !online) return;
+    queueMicrotask(() => {
+      if (active) setWeekLoading(true);
+    });
+    void Promise.all([
+      client.from("events").select("*").eq("couple_id", couple.id).gte("day", days[0]).lte("day", days[days.length - 1]),
+      client.from("schedule_days").select("*").eq("couple_id", couple.id).gte("day", days[0]).lte("day", days[days.length - 1]),
+    ]).then(([eventResult, readyResult]) => {
+      if (!active) return;
+      if (eventResult.error || readyResult.error) {
+        setWeekCandidates([]);
+        return;
+      }
+      const candidates = days.flatMap((candidateDay) => {
+        const readyForDay = (readyResult.data || []).filter((entry) => entry.day === candidateDay);
+        if (readyForDay.length !== 2) return [];
+        return sharedWindows(
+          (eventResult.data || []).filter((event) => event.day === candidateDay),
+          couple,
+        ).map((window) => ({ day: candidateDay, ...window }));
+      });
+      candidates.sort((a, b) => (b.end - b.start) - (a.end - a.start) || a.day.localeCompare(b.day) || a.start - b.start);
+      setWeekCandidates(candidates.slice(0, 3));
+    }).catch(() => {
+      if (active) setWeekCandidates([]);
+    }).finally(() => {
+      if (active) setWeekLoading(false);
+    });
+    return () => { active = false; };
+  }, [view, day, couple, client, demo, online, data.ready, data.events]);
+  useEffect(() => {
+    const taskState = Object.fromEntries(
+      data.tasks.map((task) => [task.id, `${task.accepted_at || ""}|${task.completed_at || ""}|${task.confirmed_at || ""}|${task.declined_at || ""}|${task.cancelled_at || ""}`]),
+    );
+    const latestMessage = data.messages[data.messages.length - 1];
+    const next = {
+      latestMessage: latestMessage?.id || "",
+      pendingRequests: incomingRequests.length,
+      tasks: taskState,
+    };
+    const previous = noticeSnapshot.current;
+    noticeSnapshot.current = next;
+    if (!previous || demo) return;
+    const fresh: LocalNotice[] = [];
+    if (next.pendingRequests > previous.pendingRequests) {
+      fresh.push({ id: crypto.randomUUID(), title: "A new partner request", body: "Someone is waiting for your answer.", at: Date.now() });
+    }
+    if (latestMessage && latestMessage.id !== previous.latestMessage && latestMessage.sender_id !== userId) {
+      fresh.push({ id: crypto.randomUUID(), title: `A message from ${name(latestMessage.sender_id)}`, body: latestMessage.body, at: Date.now() });
+    }
+    for (const task of data.tasks) {
+      const before = previous.tasks[task.id];
+      const after = taskState[task.id];
+      if (!before || before === after) continue;
+      if (!task.accepted_at && task.declined_at) fresh.push({ id: crypto.randomUUID(), title: "A commitment was declined", body: task.title, at: Date.now() });
+      else if (task.completed_at && !before.includes(task.completed_at)) fresh.push({ id: crypto.randomUUID(), title: `${name(task.assignee_id)} marked a promise complete`, body: task.title, at: Date.now() });
+      else if (task.confirmed_at && !before.includes(task.confirmed_at)) fresh.push({ id: crypto.randomUUID(), title: "Completion confirmed", body: task.title, at: Date.now() });
+      else if (task.accepted_at && !before.includes(task.accepted_at)) fresh.push({ id: crypto.randomUUID(), title: "A commitment was accepted", body: task.title, at: Date.now() });
+    }
+    if (fresh.length) queueMicrotask(() => setNotices((current) => [...fresh, ...current].slice(0, 12)));
+  }, [data.messages, data.tasks, incomingRequests.length, demo, userId, name]);
   function changeDay(next: string) {
     setChosenWindow(0);
     setDay(next);
@@ -350,10 +449,7 @@ export default function Workspace({
       return true;
     } catch (e) {
       const message =
-        e instanceof Error
-          ? e.message
-          : (e as { message?: string })?.message ||
-            "Could not save. Please try again.";
+        friendlyError(e, "Could not save. Please try again.");
       setFormError(message);
       toast.error(message);
       return false;
@@ -365,10 +461,7 @@ export default function Workspace({
     const r = await p;
     if (r.error) {
       const issue = r.error as { code?: string; message?: string };
-      if (["PGRST202", "PGRST205", "42P01", "42883"].includes(issue.code || "")) {
-        throw new Error("This feature needs the latest hadzar Supabase migration. Ask the project owner to run the newest migration file.");
-      }
-      throw r.error;
+      throw new Error(friendlyError(issue));
     }
   }
   function update(fn: (d: Data) => Data) {
@@ -417,22 +510,23 @@ export default function Workspace({
           update((d) => ({
             ...d,
             tasks:
-              action === "decline"
-                ? d.tasks.filter((x) => x.id !== t.id)
-                : d.tasks.map((x) =>
-                    x.id !== t.id
-                      ? x
-                      : {
-                          ...x,
-                           [action === "accept"
-                             ? "accepted_at"
-                             : action === "complete"
-                               ? "completed_at"
-                               : action === "confirm"
-                                 ? "confirmed_at"
-                                 : "paid_at"]: new Date().toISOString(),
-                        },
-                  ),
+              d.tasks.map((x) => {
+                if (x.id !== t.id) return x;
+                const stamp = new Date().toISOString();
+                if (action === "decline") return { ...x, declined_at: stamp };
+                if (action === "cancel") return { ...x, cancelled_at: stamp };
+                if (action === "waive") return { ...x, waived_at: stamp };
+                return {
+                  ...x,
+                  [action === "accept"
+                    ? "accepted_at"
+                    : action === "complete"
+                      ? "completed_at"
+                      : action === "confirm"
+                        ? "confirmed_at"
+                        : "paid_at"]: stamp,
+                };
+              }),
           }));
           return;
         }
@@ -446,6 +540,10 @@ export default function Workspace({
             ? "Commitment accepted"
             : action === "confirm"
               ? "Completion confirmed"
+              : action === "cancel"
+                ? "Commitment cancelled"
+                : action === "waive"
+                  ? "Penalty waived"
               : "Invitation declined",
       false,
     );
@@ -655,6 +753,9 @@ export default function Workspace({
           completed_at: null,
           confirmed_at: assignee_id === userId ? new Date().toISOString() : null,
           paid_at: null,
+          declined_at: null,
+          cancelled_at: null,
+          waived_at: null,
           created_at: new Date().toISOString(),
         };
         if (demo) update((d) => ({ ...d, tasks: [...d.tasks, record] }));
@@ -708,6 +809,14 @@ export default function Workspace({
       buffer: Number(f.get("buffer")),
       default_penalty: Number(f.get("penalty")),
     };
+    if (
+      !demo &&
+      settings.timezone !== couple.timezone &&
+      data.events.length > 0 &&
+      !window.confirm(
+        "Changing the shared timezone changes how existing busy blocks are interpreted. Continue and confirm your schedules again?",
+      )
+    ) return;
     await perform(
       async () => {
         if (settings.day_end <= settings.day_start)
@@ -782,24 +891,49 @@ export default function Workspace({
       setBusy(false);
     }
   }
-  function exportData() {
-    const payload = {
-      exported_at: new Date().toISOString(),
-      profile: me,
-      partner: partner || null,
-      shared_space: couple,
-      events: data.events,
-      commitments: data.tasks,
-      notes: data.notes,
-      messages: data.messages,
-    };
-    const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `hadzar-${new Date().toISOString().slice(0, 10)}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
-    toast.success("Your hadzar data is ready to download");
+  async function exportData() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      let events = data.events;
+      let messages = data.messages;
+      let ready = data.ready;
+      if (!demo && client) {
+        const [eventResult, messageResult, readyResult] = await Promise.all([
+          client.from("events").select("*").eq("couple_id", couple.id).order("day").order("start_min"),
+          client.from("messages").select("*").eq("couple_id", couple.id).order("created_at"),
+          client.from("schedule_days").select("*").eq("couple_id", couple.id).order("day"),
+        ]);
+        if (eventResult.error) throw eventResult.error;
+        if (messageResult.error) throw messageResult.error;
+        if (readyResult.error) throw readyResult.error;
+        events = eventResult.data || [];
+        messages = messageResult.data || [];
+        ready = readyResult.data || [];
+      }
+      const payload = {
+        exported_at: new Date().toISOString(),
+        profile: me,
+        partner: partner || null,
+        shared_space: couple,
+        events,
+        schedule_confirmations: ready,
+        commitments: data.tasks,
+        notes: data.notes,
+        messages,
+      };
+      const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `hadzar-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      toast.success("Your complete hadzar archive is ready to download");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not prepare your export.");
+    } finally {
+      setBusy(false);
+    }
   }
   async function deleteAccount() {
     if (demo || !client) return;
@@ -834,19 +968,24 @@ export default function Workspace({
     }
   }
   function exportIcs() {
+    const escapeIcs = (value: string) =>
+      value.replace(/\\/g, "\\\\").replace(/([,;])/g, "\\$1").replace(/\r?\n/g, "\\n");
     const stamp = (minutesValue: number) => `${day.replaceAll("-", "")}T${time(minutesValue).replace(":", "")}00`;
+    const stampNow = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
     const lines = [
       "BEGIN:VCALENDAR",
       "VERSION:2.0",
       "PRODID:-//hadzar//Shared time//EN",
       "CALSCALE:GREGORIAN",
+      `X-WR-TIMEZONE:${couple.timezone}`,
       ...allEvents.flatMap((event) => [
         "BEGIN:VEVENT",
         `UID:${event.id}@hadzar`,
+        `DTSTAMP:${stampNow}`,
         `DTSTART;TZID=${couple.timezone}:${stamp(event.start_min)}`,
         `DTEND;TZID=${couple.timezone}:${stamp(event.end_min)}`,
-        `SUMMARY:${event.title.replace(/[\\,;]/g, " ")}`,
-        `DESCRIPTION:${event.shared ? "Shared time together" : `Busy time for ${name(event.user_id)}`}`,
+        `SUMMARY:${escapeIcs(event.title)}`,
+        `DESCRIPTION:${escapeIcs(event.shared ? "Shared time together" : `Busy time for ${name(event.user_id)}`)}`,
         "END:VEVENT",
       ]),
       "END:VCALENDAR",
@@ -1051,7 +1190,8 @@ export default function Workspace({
         className={
           "commitment " +
           (late ? "late " : "") +
-          (t.completed_at ? "completed" : "")
+          (t.completed_at ? "completed " : "") +
+          (t.cancelled_at || t.declined_at ? "closed" : "")
         }
         key={t.id}
       >
@@ -1070,6 +1210,9 @@ export default function Workspace({
             {t.completed_at && !t.confirmed_at && t.creator_id !== t.assignee_id && (
               <span className="status">Waiting for confirmation</span>
             )}
+            {t.declined_at && <span className="status">Declined</span>}
+            {t.cancelled_at && <span className="status">Cancelled</span>}
+            {t.waived_at && <span className="status">Penalty waived</span>}
           </div>
           <h3>{t.title}</h3>
           {t.description && <p className="muted">{t.description}</p>}
@@ -1114,6 +1257,20 @@ export default function Workspace({
                   onClick={() => taskAction(t, "confirm")}
                 >
                   <CheckCheck size={15} /> Confirm completion
+                </button>
+              </div>
+            )}
+          {t.creator_id === userId &&
+            !t.completed_at &&
+            !t.cancelled_at &&
+            !t.declined_at && (
+              <div className="task-actions">
+                <button
+                  className="plain muted"
+                  disabled={busy}
+                  onClick={() => taskAction(t, "cancel")}
+                >
+                  Cancel commitment
                 </button>
               </div>
             )}
@@ -1169,6 +1326,32 @@ export default function Workspace({
               {partner ? "A space for two" : "Waiting for your person"}
             </small>
           </div>
+        </div>
+        <div className="notification-wrap">
+          <button
+            className="icon-btn notification-button"
+            aria-label="Notifications"
+            aria-expanded={noticeOpen}
+            onClick={() => setNoticeOpen((open) => !open)}
+          >
+            <Bell size={17} />
+            {!!notices.length && <span className="notification-dot" />}
+          </button>
+          {noticeOpen && (
+            <div className="notification-popover" role="dialog" aria-label="Notifications">
+              <div className="panel-title">
+                <h2>Recent activity</h2>
+                {!!notices.length && <button className="plain" onClick={() => setNotices([])}>Clear</button>}
+              </div>
+              {notices.length ? notices.map((notice) => (
+                <button className="notification-item" key={notice.id} onClick={() => setNoticeOpen(false)}>
+                  <strong>{notice.title}</strong>
+                  <span>{notice.body}</span>
+                  <small>{new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" }).format(notice.at)}</small>
+                </button>
+              )) : <p className="muted">Nothing new right now.</p>}
+            </div>
+          )}
         </div>
       </header>
       <div className="app-grid">
@@ -1525,6 +1708,33 @@ export default function Workspace({
                   <div><strong className="serif">{activeTasks.length}</strong><span>still open</span></div>
                 </div>
               </section>
+              <section className="week-panel">
+                <div className="panel-title">
+                  <div>
+                    <h2>Best chances this week</h2>
+                    <p className="meta">The three longest windows we can see ahead.</p>
+                  </div>
+                </div>
+                {weekLoading && <p className="muted">Looking across the next seven days…</p>}
+                {!weekLoading && weekCandidates.length > 0 && (
+                  <div className="week-candidates">
+                    {weekCandidates.map((candidate) => (
+                      <button
+                        className="week-candidate"
+                        key={`${candidate.day}-${candidate.start}`}
+                        onClick={() => changeDay(candidate.day)}
+                      >
+                        <span>{new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(candidate.day + "T12:00:00Z"))}</span>
+                        <strong>{time(candidate.start)}–{time(candidate.end)}</strong>
+                        <small>{duration(candidate.end - candidate.start)}</small>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {!weekLoading && !weekCandidates.length && (
+                  <p className="quiet-empty">No confirmed shared windows yet. Confirm a day together to see the best chances here.</p>
+                )}
+              </section>
             </div>
           )}
           {view === "tasks" && (
@@ -1547,7 +1757,7 @@ export default function Workspace({
                     Active · {activeTasks.length}
                   </TabsTrigger>
                   <TabsTrigger value="mine">Mine</TabsTrigger>
-                  <TabsTrigger value="completed">Completed</TabsTrigger>
+                  <TabsTrigger value="completed">History</TabsTrigger>
                 </TabsList>
               </Tabs>
               <p className="section-meta">
@@ -1557,19 +1767,19 @@ export default function Workspace({
                 {data.tasks
                   .filter((t) =>
                     filter === "completed"
-                      ? !!t.completed_at
+                      ? !!(t.completed_at || t.declined_at || t.cancelled_at)
                       : filter === "mine"
-                        ? !t.completed_at && t.assignee_id === userId
-                        : !t.completed_at,
+                        ? !t.completed_at && !t.declined_at && !t.cancelled_at && t.assignee_id === userId
+                        : !t.completed_at && !t.declined_at && !t.cancelled_at,
                   )
                   .map(taskCard)}
               </div>
               {!data.tasks.some((t) =>
-                filter === "completed"
-                  ? !!t.completed_at
+                  filter === "completed"
+                  ? !!(t.completed_at || t.declined_at || t.cancelled_at)
                   : filter === "mine"
-                    ? !t.completed_at && t.assignee_id === userId
-                    : !t.completed_at,
+                    ? !t.completed_at && !t.declined_at && !t.cancelled_at && t.assignee_id === userId
+                    : !t.completed_at && !t.declined_at && !t.cancelled_at,
               ) && (
                 <div className="empty-surface">
                   <ListChecks size={28} strokeWidth={1} />
@@ -1624,8 +1834,8 @@ export default function Workspace({
                   </div>
                   <div className="penalty-right">
                     <strong>{money(t.penalty)}</strong>
-                    <span className={t.paid_at ? "meta" : "error"}>
-                      {t.paid_at ? "Recorded as paid" : "Unpaid"}
+                    <span className={t.paid_at || t.waived_at ? "meta" : "error"}>
+                      {t.paid_at ? "Recorded as paid" : t.waived_at ? "Waived" : "Unpaid"}
                     </span>
                     {!t.paid_at && t.assignee_id === userId && (
                       <button
@@ -1634,6 +1844,15 @@ export default function Workspace({
                         onClick={() => taskAction(t, "paid")}
                       >
                         Record payment
+                      </button>
+                    )}
+                    {!t.paid_at && !t.waived_at && t.creator_id === userId && (
+                      <button
+                        className="plain"
+                        disabled={busy}
+                        onClick={() => taskAction(t, "waive")}
+                      >
+                        Waive penalty
                       </button>
                     )}
                   </div>
@@ -1709,7 +1928,7 @@ export default function Workspace({
                 <h2>Your account</h2>
                 <p className="meta">Keep a copy of your shared space or update the password used to sign in.</p>
                 <div className="account-actions">
-                  <button type="button" className="btn" onClick={exportData}>
+                  <button type="button" className="btn" disabled={busy} onClick={() => void exportData()}>
                     <Download size={15} /> Export my data
                   </button>
                 </div>

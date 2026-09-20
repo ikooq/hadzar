@@ -9,6 +9,8 @@ export const metadata: Metadata = {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",
   },
+  manifest: "/manifest.webmanifest",
+  themeColor: "#E8ECEF",
 };
 
 export default function RootLayout({
