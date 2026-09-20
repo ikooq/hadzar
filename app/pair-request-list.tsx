@@ -28,13 +28,15 @@ export function OutgoingPairRequestList({ requests, busy, onCancel }: {
   busy: boolean;
   onCancel: (requestId: string) => Promise<void>;
 }) {
+  const statusLabel = (status: PairRequest["status"]) =>
+    status === "cancelled" ? "Cancelled" : status[0].toUpperCase() + status.slice(1);
   return (
     <div className="request-list outgoing-requests">
       {requests.length ? requests.map((request) => (
         <div className="request-row" key={request.id}>
           <div>
             <strong>{request.recipient_name || "Your partner"}</strong>
-            <span className="meta">@{request.recipient_nickname || "nickname"} · {request.status[0].toUpperCase() + request.status.slice(1)}</span>
+            <span className="meta">@{request.recipient_nickname || "nickname"} · {statusLabel(request.status)}</span>
           </div>
           {request.status === "pending" && (
             <button className="plain" disabled={busy} onClick={() => void onCancel(request.id)}>

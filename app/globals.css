@@ -1096,6 +1096,10 @@ small,
 .commitment.completed {
   background: #f0f3f5;
 }
+.commitment.closed {
+  background: #f5f5f2;
+  color: var(--muted-foreground);
+}
 .commitment-main {
   padding: 22px 24px;
   min-width: 0;
@@ -1576,6 +1580,95 @@ small,
   color: var(--muted-foreground);
   font-size: 12px;
 }
+.week-panel {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+}
+.week-candidates {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.week-candidate {
+  display: grid;
+  gap: 6px;
+  min-height: 92px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--foreground);
+  text-align: left;
+  cursor: pointer;
+}
+.week-candidate:hover,
+.week-candidate:focus-visible {
+  border-color: var(--foreground);
+}
+.week-candidate span,
+.week-candidate small {
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+.week-candidate strong {
+  font-size: 16px;
+  font-weight: 600;
+}
+.notification-wrap {
+  position: relative;
+  margin-left: auto;
+}
+.notification-button {
+  position: relative;
+  width: 36px;
+  height: 36px;
+}
+.notification-dot {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--together);
+  border: 1px solid var(--card);
+}
+.notification-popover {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 10px);
+  right: 0;
+  width: min(330px, calc(100vw - 32px));
+  padding: 14px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  box-shadow: 0 16px 38px rgba(29, 39, 45, 0.15);
+}
+.notification-popover .panel-title {
+  margin-bottom: 8px;
+}
+.notification-popover .panel-title h2 {
+  font-size: 15px;
+}
+.notification-item {
+  display: grid;
+  width: 100%;
+  gap: 3px;
+  padding: 11px 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: transparent;
+  color: var(--foreground);
+  text-align: left;
+}
+.notification-item strong {
+  font-size: 13px;
+}
+.notification-item span,
+.notification-item small {
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
 .dialog-body select,
 .settings-form select {
   min-height: 42px;
@@ -1588,6 +1681,9 @@ small,
 }
 @media (max-width: 640px) {
   .reflection-grid {
+    grid-template-columns: 1fr;
+  }
+  .week-candidates {
     grid-template-columns: 1fr;
   }
   .calendar-export {

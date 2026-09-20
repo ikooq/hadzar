@@ -8,6 +8,7 @@ import { profileFor, loadData, pendingPairRequests } from "@/lib/data";
 import { dayInZone, type Data, type PairRequest, type Profile } from "@/lib/types";
 import { demoData } from "@/lib/demo";
 import { pairRequestError } from "@/lib/pair-requests";
+import { friendlyError } from "@/lib/errors";
 import { OutgoingPairRequestList, PairRequestList } from "./pair-request-list";
 export default function Hadzar() {
   const [client, setClient] = useState<SupabaseClient | null>(null),
@@ -20,7 +21,10 @@ export default function Hadzar() {
     [loading, setLoading] = useState(true),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
-    [recovery, setRecovery] = useState(false),
+    [recovery, setRecovery] = useState(() =>
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("recovery") === "1",
+    ),
     [demo, setDemo] = useState(false),
     [inviteAfterCreate, setInviteAfterCreate] = useState(false),
     [invite, setInvite] = useState(() =>
@@ -35,9 +39,13 @@ export default function Hadzar() {
     );
   const loadVersion = useRef(0);
   const identity = useRef<string | null>(null);
+  const pairDayInitialized = useRef(false);
   useEffect(() => {
     let unsub: (() => void) | undefined;
     let active = true;
+    if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+      void navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+    }
     getClient()
       .then(async (c) => {
         if (!active) return;
@@ -58,6 +66,7 @@ export default function Hadzar() {
             }
             if (event === "SIGNED_OUT") {
               loadVersion.current++;
+              pairDayInitialized.current = false;
               setData(null);
               setProfile(null);
               setRequests([]);
@@ -96,6 +105,14 @@ export default function Hadzar() {
           ? await Promise.all([loadData(client, day), pendingPairRequests(client)])
           : [null, { requests: [] as PairRequest[], available: true }];
         if (version !== loadVersion.current) return;
+        if (d && !pairDayInitialized.current) {
+          const pairDay = dayInZone(d.couple.timezone);
+          pairDayInitialized.current = true;
+          if (pairDay !== day) {
+            setDay(pairDay);
+            return;
+          }
+        }
         setProfile(p);
         setData(d);
         setRequests(nextRequests.requests);
@@ -163,12 +180,7 @@ export default function Hadzar() {
       await fn();
       await reload();
     } catch (e) {
-      setError(
-        e instanceof Error
-          ? e.message
-          : (e as { message?: string })?.message ||
-              "Something went wrong. Please try again.",
-      );
+      setError(friendlyError(e, "Something went wrong. Please try again."));
     } finally {
       setBusy(false);
     }

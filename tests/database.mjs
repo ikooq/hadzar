@@ -19,6 +19,7 @@ await db.exec(
 );
 await db.exec(await readFile(new URL("../supabase/migrations/202609190002_repair_pair_requests.sql", import.meta.url), "utf8"));
 await db.exec(await readFile(new URL("../supabase/migrations/202609200001_product_improvements.sql", import.meta.url), "utf8"));
+await db.exec(await readFile(new URL("../supabase/migrations/202609210001_focus_integrity.sql", import.meta.url), "utf8"));
 const ids = [
   "11111111-1111-4111-8111-111111111111",
   "22222222-2222-4222-8222-222222222222",
@@ -101,6 +102,20 @@ assert.equal((await db.query("select confirmed_at from public.tasks where id=$1"
 await asUser(ids[0]);
 await db.query("select public.act_on_task($1,'confirm')", [task]);
 assert.ok((await db.query("select confirmed_at from public.tasks where id=$1", [task])).rows[0].confirmed_at);
+const declinedTask = (await db.query(
+  "select public.add_task('Decline me','', $1,now()+interval '1 day',1000) as id",
+  [ids[1]],
+)).rows[0].id;
+await asUser(ids[1]);
+await db.query("select public.act_on_task($1,'decline')", [declinedTask]);
+assert.ok((await db.query("select declined_at from public.tasks where id=$1", [declinedTask])).rows[0].declined_at);
+await asUser(ids[0]);
+const cancelledTask = (await db.query(
+  "select public.add_task('Cancel me','', $1,now()+interval '1 day',1000) as id",
+  [ids[1]],
+)).rows[0].id;
+await db.query("select public.act_on_task($1,'cancel')", [cancelledTask]);
+assert.ok((await db.query("select cancelled_at from public.tasks where id=$1", [cancelledTask])).rows[0].cancelled_at);
 await db.query("insert into public.message_reads(couple_id,user_id,last_read_at) values($1,$2,now())", [pair, ids[0]]);
 await fails("insert into public.message_reads(couple_id,user_id) values($1,$2)", [pair, ids[1]]);
 await asUser(ids[2]);
@@ -128,6 +143,9 @@ await db.query("insert into public.schedule_days values($1,$2,'2026-09-15')", [
 ]);
 await db.query("select public.plan_window('2026-09-15',810,900,'Lunch')");
 await fails("select public.plan_window('2026-09-15',810,900,'Duplicate')");
+await asUser(ids[0]);
+await db.query("insert into public.events(couple_id,user_id,day,title,start_min,end_min) values($1,$2,'2026-09-15','New busy time',600,630)", [pair, ids[0]]);
+assert.equal(Number((await db.query("select count(*) from public.schedule_days where couple_id=$1 and day='2026-09-15'", [pair])).rows[0].count), 0);
 await asUser(ids[0]);
 await db.query(
   "select public.save_pair_settings($1,480,1320,45,15,3000)",

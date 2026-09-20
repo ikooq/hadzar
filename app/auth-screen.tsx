@@ -1,6 +1,7 @@
 "use client";
 import { useState, type FormEvent } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { friendlyError } from "@/lib/errors";
 export function Brand() {
   return (
     <span className="brand-mark">
@@ -83,11 +84,7 @@ export default function AuthScreen({
         if (r.error) throw r.error;
       }
     } catch (e) {
-      setError(
-        e instanceof Error
-          ? e.message
-          : "Something went wrong. Please try again.",
-      );
+      setError(friendlyError(e));
     } finally {
       setBusy(false);
     }
