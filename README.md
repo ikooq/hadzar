@@ -4,14 +4,14 @@ A shared space for two people with busy lives. English UI, individual email/pass
 
 ## Current status
 
-The app and Supabase database schema are implemented. A clearly labelled, in-memory sample workspace is available while the backend is not configured. It is not a substitute for registration: no sample data is saved and no accounts are faked.
+The app and Supabase database migrations are implemented. A clearly labelled, in-memory sample workspace is available while the backend is not configured. It is not a substitute for registration: no sample data is saved and no accounts are faked.
 
 Live email delivery and password recovery still depend on the connected Supabase project's email settings. The published Site is public, while application data remains private through database Row Level Security. Realtime updates are enabled when the Supabase project includes the `supabase_realtime` publication.
 
 ## Connect Supabase
 
 1. Create a Supabase project at https://supabase.com/dashboard.
-2. For a new database, run `supabase/migrations/202609140001_hadzar.sql` once, followed by `supabase/migrations/202609190002_repair_pair_requests.sql`, `supabase/migrations/202609200001_product_improvements.sql`, `supabase/migrations/202609210001_focus_integrity.sql`, and `supabase/migrations/202609220001_shared_plans_notifications.sql`. For an existing hadzar database, run the repair, product improvements, focus integrity, and shared plans files. They are safe to rerun and refresh the API schema cache. Publishing the website does not apply external Supabase migrations.
+2. For a new database, run these files in order: `supabase/migrations/202609140001_hadzar.sql`, `supabase/migrations/202609190001_pair_requests.sql`, `supabase/migrations/202609190002_repair_pair_requests.sql`, `supabase/migrations/202609200001_product_improvements.sql`, `supabase/migrations/202609210001_focus_integrity.sql`, and `supabase/migrations/202609220001_shared_plans_notifications.sql`. For an existing hadzar database, run the repair, product improvements, focus integrity, and shared plans files after checking which earlier migrations are already present. They are safe to rerun and refresh the API schema cache. Publishing the website does not apply external Supabase migrations.
 3. In Authentication, enable Email and password, require email confirmation, and set a minimum password length of 8 or greater.
 4. Set Site URL to the final hadzar URL. Allow that origin's root, invitation query URLs, and `/?recovery=1` as authentication redirect URLs. For local development allow `http://localhost:5173/**` as well. Use exact production-origin patterns, not an unrestricted global wildcard.
 5. Configure custom SMTP for confirmations and password resets before public registration. Supabase's default mail service is for testing and limits recipients/delivery.
