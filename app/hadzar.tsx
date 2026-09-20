@@ -302,7 +302,7 @@ export default function Hadzar() {
           <section className="request-onboarding">
             <h2>Incoming requests</h2>
             {requestsAvailable ? <PairRequestList
-              requests={requests.filter(request => request.recipient_id === user?.id)}
+              requests={requests.filter(request => request.recipient_id === user?.id && request.status === "pending")}
               busy={busy}
               onRespond={(id, action) => act(() => respondToRequest(id, action))}
             /> : <p className="muted">Partner requests are temporarily unavailable. You can still join by invitation link below.</p>}
@@ -325,7 +325,7 @@ export default function Hadzar() {
           }}>
             <label>Partner nickname<input name="partner_nickname" required pattern="@?[a-zA-Z0-9_]{3,24}" maxLength={25} placeholder="Your partner’s nickname" /></label>
             <button className="btn" disabled={busy || !requestsAvailable}>Send request</button>
-            {(requestSent || requests.some(request => request.sender_id === user?.id)) && <p className="meta" role="status">Request sent. Your partner can accept it in their account.</p>}
+            {(requestSent || requests.some(request => request.sender_id === user?.id && request.status === "pending")) && <p className="meta" role="status">Request sent. Your partner can accept it in their account.</p>}
           </form>
           <div className="or-line"><span>or create your space first</span></div>
           <button
