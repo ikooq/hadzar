@@ -106,13 +106,40 @@ end;$$;
 
 create or replace function public.delete_my_account()
 returns void language plpgsql security definer set search_path = '' as $$
+declare c public.couples;
 begin
   if auth.uid() is null then raise exception 'Please sign in.'; end if;
+  select * into c from public.couples
+    where member_one = auth.uid() or member_two = auth.uid() for update;
+  if c.id is not null and c.member_one = auth.uid() and c.member_two is not null then
+    update public.couples set member_one = c.member_two, member_two = null where id = c.id;
+  elsif c.id is not null and c.member_one = auth.uid() then
+    delete from public.couples where id = c.id;
+  elsif c.id is not null then
+    update public.couples set member_two = null where id = c.id;
+  end if;
   delete from auth.users where id = auth.uid();
 end;$$;
 
-revoke all on function public.cancel_pair_request(uuid), public.delete_my_account() from public, anon;
-grant execute on function public.cancel_pair_request(uuid), public.delete_my_account() to authenticated;
+create or replace function public.leave_pair()
+returns void language plpgsql security definer set search_path = '' as $$
+declare c public.couples;
+begin
+  if auth.uid() is null then raise exception 'Please sign in.'; end if;
+  select * into c from public.couples
+    where member_one = auth.uid() or member_two = auth.uid() for update;
+  if c.id is null then raise exception 'You are not connected to a shared space.'; end if;
+  if c.member_one = auth.uid() and c.member_two is not null then
+    update public.couples set member_one = c.member_two, member_two = null where id = c.id;
+  elsif c.member_one = auth.uid() then
+    delete from public.couples where id = c.id;
+  else
+    update public.couples set member_two = null where id = c.id;
+  end if;
+end;$$;
+
+revoke all on function public.cancel_pair_request(uuid), public.delete_my_account(), public.leave_pair() from public, anon;
+grant execute on function public.cancel_pair_request(uuid), public.delete_my_account(), public.leave_pair() to authenticated;
 
 do $$
 begin

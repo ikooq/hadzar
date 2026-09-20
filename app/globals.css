@@ -1534,6 +1534,66 @@ small,
 .outgoing-requests {
   margin-top: 8px;
 }
+.offline-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 7px 16px;
+  border-bottom: 1px solid var(--border);
+  background: #f3e8d2;
+  color: #6d4c23;
+  font-size: 13px;
+}
+.calendar-export {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.reflection-panel {
+  margin-top: 34px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+}
+.reflection-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.reflection-grid > div {
+  display: grid;
+  gap: 4px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  background: var(--card);
+}
+.reflection-grid strong {
+  font-size: 28px;
+  line-height: 1;
+}
+.reflection-grid span {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.dialog-body select,
+.settings-form select {
+  min-height: 42px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--card);
+  color: var(--foreground);
+  padding: 0 12px;
+  font: inherit;
+}
+@media (max-width: 640px) {
+  .reflection-grid {
+    grid-template-columns: 1fr;
+  }
+  .calendar-export {
+    font-size: 12px;
+  }
+}
   .standalone-chat {
     height: calc(100dvh - 160px);
     padding: 0 18px;

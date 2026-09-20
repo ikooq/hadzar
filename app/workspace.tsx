@@ -27,6 +27,8 @@ import {
   Copy,
   Download,
   KeyRound,
+  CalendarPlus,
+  WifiOff,
   Trash2,
   Users,
   Link2,
@@ -162,6 +164,9 @@ export default function Workspace({
     [hasOlder, setHasOlder] = useState(true),
     [chatBusy, setChatBusy] = useState(false);
   const [accountError, setAccountError] = useState("");
+  const [online, setOnline] = useState(() =>
+    typeof navigator === "undefined" ? true : navigator.onLine,
+  );
   const chatEnd = useRef<HTMLDivElement>(null),
     chatScroll = useRef<HTMLDivElement>(null),
     nearBottom = useRef(true);
@@ -266,6 +271,16 @@ export default function Workspace({
       });
   // The message array is intentionally included so a newly received message is marked read.
   }, [view, messages.length, demo, client, couple.id, userId, readMarker, messages, setData]);
+  useEffect(() => {
+    const onlineNow = () => setOnline(true);
+    const offlineNow = () => setOnline(false);
+    window.addEventListener("online", onlineNow);
+    window.addEventListener("offline", offlineNow);
+    return () => {
+      window.removeEventListener("online", onlineNow);
+      window.removeEventListener("offline", offlineNow);
+    };
+  }, []);
   function changeDay(next: string) {
     setChosenWindow(0);
     setDay(next);
@@ -319,6 +334,12 @@ export default function Workspace({
     close = true,
   ) {
     if (busy) return false;
+    if (!demo && !online) {
+      const message = "You’re offline. Reconnect before saving changes.";
+      setFormError(message);
+      toast.error(message);
+      return false;
+    }
     setBusy(true);
     setFormError("");
     try {
@@ -442,7 +463,10 @@ export default function Workspace({
   async function sendMessage(e: FormEvent) {
     e.preventDefault();
     const body = draft.trim();
-    if (!body || chatBusy) return;
+    if (!body || chatBusy || !online) {
+      if (!online) toast.error("You’re offline. Your message was not sent.");
+      return;
+    }
     setChatBusy(true);
     try {
       if (demo)
@@ -531,18 +555,30 @@ export default function Workspace({
           end = minutes(String(f.get("end")));
         if (end <= start)
           throw new Error("The end time must be after the start time.");
-        const record = {
+        const title = String(f.get("title")).trim();
+        const repeat = String(f.get("repeat") || "none");
+        const days = [day];
+        const date = new Date(day + "T12:00:00Z");
+        const count = repeat === "daily" ? 6 : repeat === "weekdays" ? 13 : repeat === "weekly" ? 21 : 0;
+        for (let i = 1; i <= count; i++) {
+          const next = new Date(date);
+          next.setUTCDate(next.getUTCDate() + i);
+          if (repeat === "weekdays" && [0, 6].includes(next.getUTCDay())) continue;
+          if (repeat === "weekly" && i % 7 !== 0) continue;
+          days.push(next.toISOString().slice(0, 10));
+        }
+        const records = days.map((eventDay) => ({
           id: crypto.randomUUID(),
           couple_id: couple.id,
           user_id: userId,
-          day,
-          title: String(f.get("title")).trim(),
+          day: eventDay,
+          title,
           start_min: start,
           end_min: end,
           shared: false,
-        };
-        if (demo) update((d) => ({ ...d, events: [...d.events, record] }));
-        else await checked(client!.from("events").insert(record));
+        }));
+        if (demo) update((d) => ({ ...d, events: [...d.events, ...records] }));
+        else await checked(client!.from("events").insert(records));
       }
       if (modal?.kind === "plan") {
         const record = {
@@ -780,6 +816,48 @@ export default function Workspace({
     } finally {
       setBusy(false);
     }
+  }
+  async function leavePair() {
+    if (demo || !client) return;
+    if (!window.confirm("Leave this shared space? Your partner will keep their own account and the shared space will be separated.")) return;
+    setBusy(true);
+    setAccountError("");
+    try {
+      const result = await client.rpc("leave_pair");
+      if (result.error) throw result.error;
+      await client.auth.signOut();
+      toast.success("You left the shared space");
+    } catch (error) {
+      setAccountError(error instanceof Error ? error.message : "Could not leave the shared space.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  function exportIcs() {
+    const stamp = (minutesValue: number) => `${day.replaceAll("-", "")}T${time(minutesValue).replace(":", "")}00`;
+    const lines = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//hadzar//Shared time//EN",
+      "CALSCALE:GREGORIAN",
+      ...allEvents.flatMap((event) => [
+        "BEGIN:VEVENT",
+        `UID:${event.id}@hadzar`,
+        `DTSTART;TZID=${couple.timezone}:${stamp(event.start_min)}`,
+        `DTEND;TZID=${couple.timezone}:${stamp(event.end_min)}`,
+        `SUMMARY:${event.title.replace(/[\\,;]/g, " ")}`,
+        `DESCRIPTION:${event.shared ? "Shared time together" : `Busy time for ${name(event.user_id)}`}`,
+        "END:VEVENT",
+      ]),
+      "END:VCALENDAR",
+    ];
+    const url = URL.createObjectURL(new Blob([lines.join("\r\n")], { type: "text/calendar" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `hadzar-${day}.ics`;
+    link.click();
+    URL.revokeObjectURL(url);
+    toast.success("Calendar file downloaded");
   }
   function notesPanel(full = false) {
     return (
@@ -1060,6 +1138,7 @@ export default function Workspace({
   return (
     <div className="app-shell">
       <Toaster position="top-center" theme="light" />
+      {!online && <div className="offline-banner" role="status"><WifiOff size={15} /> Offline · changes are paused until you reconnect.</div>}
       {demo && (
         <div className="demo-banner">
           <span>Sample workspace · Azhar & Ilias · Changes are not saved</span>
@@ -1199,6 +1278,9 @@ export default function Workspace({
                   {couple.timezone.replaceAll("_", " ")} ·{" "}
                   {time(couple.day_start)}–{time(couple.day_end)}
                 </span>
+                <button className="plain calendar-export" onClick={exportIcs}>
+                  <CalendarPlus size={15} /> Export .ics
+                </button>
               </div>
               <div className="schedule-status">
                 <button
@@ -1430,6 +1512,19 @@ export default function Workspace({
                   </p>
                 )}
               </div>
+              <section className="reflection-panel">
+                <div className="panel-title">
+                  <div>
+                    <h2>A little look back</h2>
+                    <p className="meta">A small reflection from what you’ve shared here.</p>
+                  </div>
+                </div>
+                <div className="reflection-grid">
+                  <div><strong className="serif">{shared.length + windows.length}</strong><span>shared moments logged</span></div>
+                  <div><strong className="serif">{data.tasks.filter((t) => t.completed_at).length}</strong><span>promises kept</span></div>
+                  <div><strong className="serif">{activeTasks.length}</strong><span>still open</span></div>
+                </div>
+              </section>
             </div>
           )}
           {view === "tasks" && (
@@ -1748,6 +1843,11 @@ export default function Workspace({
                     <Link2 size={16} /> Invite your partner
                   </button>
                 )}
+                {partner && !demo && (
+                  <button type="button" className="plain danger-action" disabled={busy} onClick={() => void leavePair()}>
+                    <Users size={15} /> Leave shared space
+                  </button>
+                )}
                 <button className="plain" onClick={onExit}>
                   <LogOut size={15} />
                   {demo ? "Leave sample workspace" : "Sign out"}
@@ -1963,6 +2063,17 @@ export default function Workspace({
                     </label>
                   </div>
                 )}
+                {modal?.kind === "event" && (
+                  <label>
+                    Repeat this busy block
+                    <select name="repeat" defaultValue="none">
+                      <option value="none">Only this day</option>
+                      <option value="daily">Every day for one week</option>
+                      <option value="weekdays">Weekdays for two weeks</option>
+                      <option value="weekly">Weekly for four weeks</option>
+                    </select>
+                  </label>
+                )}
                 {modal?.kind === "plan" && (
                   <p>
                     {time(modal.start!)}–{time(modal.end!)} ·{" "}
@@ -2027,6 +2138,16 @@ export default function Workspace({
                   </>
                 )}
                 <div className="dialog-actions">
+                  {modal?.kind === "plan" && (
+                    <>
+                      <button type="button" className="plain" onClick={() => { setModal(null); setView("chat"); }}>
+                        Open chat
+                      </button>
+                      <button type="button" className="plain" onClick={() => setModal({ kind: "note" })}>
+                        Keep a note
+                      </button>
+                    </>
+                  )}
                   {modal?.note && (
                     <button
                       type="button"
