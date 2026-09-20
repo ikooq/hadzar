@@ -62,7 +62,12 @@ export async function loadData(
       .select("*")
       .eq("couple_id", cid),
   ]);
-  for (const r of results) if (r.error) throw r.error;
+  for (const [index, r] of results.entries()) {
+    // The live table is installed by the product-improvements migration. Keep
+    // existing spaces readable while an older Supabase project is being upgraded.
+    if (index === 6 && (r.error?.code === "42P01" || r.error?.code === "PGRST205")) continue;
+    if (r.error) throw r.error;
+  }
   return {
     couple: cr.data,
     profiles: results[0].data!,
@@ -71,6 +76,6 @@ export async function loadData(
     tasks: results[3].data!,
     notes: results[4].data!,
     messages: results[5].data!.reverse(),
-    messageReads: results[6].data || [],
+    messageReads: results[6].error ? [] : (results[6].data || []),
   } as Data;
 }
