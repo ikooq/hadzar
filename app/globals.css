@@ -1598,6 +1598,22 @@ small,
   justify-content: space-between;
   gap: 16px;
 }
+.window-kind {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.extension-request {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
 .short-window-detail strong {
   color: var(--foreground);
 }

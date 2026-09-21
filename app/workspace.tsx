@@ -39,6 +39,7 @@ import {
   CheckCheck,
   ArrowUpRight,
   Bell,
+  TimerReset,
 } from "lucide-react";
 import {
   Dialog,
@@ -82,7 +83,7 @@ type WeekCandidate = { day: string; start: number; end: number; score: number; l
 type LocalNotice = { id: string; title: string; body: string; at: number; read?: boolean };
 type QueuedMessage = { id: string; body: string; created_at: string; sender_id: string };
 type Modal = {
-  kind: "event" | "task" | "note" | "invite" | "plan" | "request" | "requests";
+  kind: "event" | "task" | "note" | "invite" | "plan" | "request" | "requests" | "extension";
   note?: Note;
   task?: Task;
   prefill?: { title?: string; body?: string };
@@ -114,6 +115,17 @@ const nav = [
   { id: "chat", label: "Chat", icon: MessageCircle },
   { id: "settings", label: "Settings", icon: Settings },
 ] as const;
+const momentKinds = [
+  { value: "open", label: "Just be together" },
+  { value: "date", label: "A date" },
+  { value: "quick_catch_up", label: "Quick catch-up" },
+  { value: "errands", label: "Errands together" },
+  { value: "quiet_time", label: "Quiet time" },
+  { value: "ritual", label: "A recurring ritual" },
+] as const;
+function momentKindLabel(kind?: string | null) {
+  return momentKinds.find((item) => item.value === kind)?.label || "Just be together";
+}
 function Choice({
   name,
   label,
@@ -195,6 +207,15 @@ export default function Workspace({
     [setupOpen, setSetupOpen] = useState(() =>
       typeof window !== "undefined" && !localStorage.getItem(`hadzar-setup-${data.couple.id}`),
     );
+  const [quietHours, setQuietHours] = useState(() => {
+    if (typeof window === "undefined") return { start: "22:00", end: "08:00" };
+    try {
+      const saved = JSON.parse(localStorage.getItem(`hadzar-quiet-hours-${data.couple.id}-${userId}`) || "null");
+      return saved && typeof saved.start === "string" && typeof saved.end === "string"
+        ? saved as { start: string; end: string }
+        : { start: "22:00", end: "08:00" };
+    } catch { return { start: "22:00", end: "08:00" }; }
+  });
   const [accountError, setAccountError] = useState("");
   const [online, setOnline] = useState(() =>
     typeof navigator === "undefined" ? true : navigator.onLine,
@@ -299,6 +320,15 @@ export default function Workspace({
       .map((notice) => ({ ...notice, persistent: false })),
   ].sort((a, b) => b.at - a.at);
   const unreadNotificationCount = notificationItems.filter((notice) => !notice.read).length;
+  const quietNow = (() => {
+    const current = new Date();
+    const minutesNow = current.getHours() * 60 + current.getMinutes();
+    const start = minutes(quietHours.start);
+    const end = minutes(quietHours.end);
+    return start === end ? false : start < end
+      ? minutesNow >= start && minutesNow < end
+      : minutesNow >= start || minutesNow < end;
+  })();
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 30000);
     return () => clearInterval(id);
@@ -324,6 +354,32 @@ export default function Workspace({
   useEffect(() => {
     if (typeof window !== "undefined") localStorage.setItem(`hadzar-outbox-${couple.id}-${userId}`, JSON.stringify(queuedMessages));
   }, [couple.id, userId, queuedMessages]);
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem(`hadzar-quiet-hours-${couple.id}-${userId}`, JSON.stringify(quietHours));
+    }
+  }, [couple.id, userId, quietHours]);
+  useEffect(() => {
+    if (quietNow || typeof window === "undefined") return;
+    const storageKey = `hadzar-task-reminders-${couple.id}-${userId}`;
+    let delivered: string[] = [];
+    try { delivered = JSON.parse(localStorage.getItem(storageKey) || "[]"); } catch { delivered = []; }
+    const deliveredSet = new Set(delivered);
+    const due = data.tasks.filter((task) => {
+      const dueAt = Date.parse(task.due_at);
+      return task.accepted_at && !task.completed_at && !task.cancelled_at && !task.declined_at
+        && dueAt > now && dueAt - now <= 24 * 60 * 60 * 1000 && !deliveredSet.has(task.id);
+    });
+    if (!due.length) return;
+    const fresh = due.map((task) => ({
+      id: `task-reminder-${task.id}`,
+      title: `Due soon: ${task.title}`,
+      body: `Deadline ${new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: couple.timezone }).format(new Date(task.due_at))} · ${money(task.penalty)} at stake`,
+      at: Date.now(),
+    }));
+    queueMicrotask(() => setNotices((current) => [...fresh, ...current.filter((notice) => !fresh.some((item) => item.id === notice.id))]));
+    localStorage.setItem(storageKey, JSON.stringify([...delivered, ...due.map((task) => task.id)].slice(-100)));
+  }, [couple.id, couple.timezone, data.tasks, now, quietNow, userId]);
   useEffect(() => {
     if (!online || demo || !client || !queuedMessages.length) return;
     let active = true;
@@ -789,6 +845,9 @@ export default function Workspace({
         else await checked(client!.from("events").insert(records));
       }
       if (modal?.kind === "plan") {
+        const momentKind = String(f.get("moment_kind") || "open");
+        const ritualRule = String(f.get("ritual_rule") || "none");
+        const ritualOccurrences = ritualRule === "monthly" ? 3 : ritualRule === "weekly" ? 4 : 1;
         const record = {
           id: crypto.randomUUID(),
           couple_id: couple.id,
@@ -800,17 +859,41 @@ export default function Workspace({
           shared: true,
           plan_status: "proposed" as const,
           plan_note: "",
+          moment_kind: momentKind as DayEvent["moment_kind"],
+          ritual_group_id: ritualRule === "none" ? null : crypto.randomUUID(),
+          ritual_rule: ritualRule === "none" ? null : ritualRule as "weekly" | "monthly",
         };
-        if (demo) update((d) => ({ ...d, events: [...d.events, record] }));
-        else await checked(
-          client!.rpc("propose_window", {
+        if (ritualRule !== "none" && ![2, 3, 4, 6, 8, 12].includes(ritualOccurrences))
+          throw new Error("Choose a valid number of ritual repetitions.");
+        if (demo) {
+          const group = record.ritual_group_id;
+          const count = ritualRule === "weekly" ? ritualOccurrences : ritualOccurrences;
+          const ritualRecords = Array.from({ length: ritualRule === "none" ? 1 : count }, (_, index) => {
+            const next = new Date(day + "T12:00:00Z");
+            if (ritualRule === "weekly") next.setUTCDate(next.getUTCDate() + index * 7);
+            if (ritualRule === "monthly") next.setUTCMonth(next.getUTCMonth() + index);
+            return { ...record, id: index === 0 ? record.id : crypto.randomUUID(), day: next.toISOString().slice(0, 10), ritual_group_id: group };
+          });
+          update((d) => ({ ...d, events: [...d.events, ...ritualRecords] }));
+        } else if (ritualRule !== "none") {
+          await checked(client!.rpc("propose_recurring_window", {
             event_day: day,
             start_at: record.start_min,
             end_at: record.end_min,
             event_title: record.title,
             event_note: "",
-          }),
-        );
+            moment_kind: momentKind,
+            ritual_rule: ritualRule,
+            occurrences: ritualOccurrences,
+          }));
+        } else await checked(client!.rpc("propose_window", {
+          event_day: day,
+          start_at: record.start_min,
+          end_at: record.end_min,
+          event_title: record.title,
+          event_note: "",
+          moment_kind: momentKind,
+        }));
       }
       if (modal?.kind === "note") {
         const record = {
@@ -906,6 +989,22 @@ export default function Workspace({
             }),
           );
       }
+      if (modal?.kind === "extension") {
+        const requestedDue = new Date(String(f.get("extension_due"))).toISOString();
+        if (Date.parse(requestedDue) <= Date.now()) throw new Error("Choose a future deadline.");
+        const note = String(f.get("extension_note") || "").trim();
+        if (demo) update((d) => ({
+          ...d,
+          tasks: d.tasks.map((item) => item.id === modal.task!.id
+            ? { ...item, extension_requested_at: new Date().toISOString(), extension_requested_by: userId, requested_due_at: requestedDue, extension_note: note }
+            : item),
+        }));
+        else await checked(client!.rpc("request_task_extension", {
+          task_id: modal.task!.id,
+          new_deadline: requestedDue,
+          request_note: note,
+        }));
+      }
       if (modal?.kind === "request") {
         const nickname = String(f.get("nickname")).trim().replace(/^@/, "").toLowerCase();
         if (!nickname) throw new Error("Enter your partner’s nickname.");
@@ -966,6 +1065,22 @@ export default function Workspace({
       }
       await checked(client!.rpc("complete_plan", { plan_id: event.id }));
     }, "Shared moment marked as happened");
+  }
+  async function respondToExtension(task: Task, action: "accept" | "decline") {
+    await perform(async () => {
+      if (demo) {
+        update((d) => ({
+          ...d,
+          tasks: d.tasks.map((item) => item.id === task.id
+            ? action === "accept"
+              ? { ...item, due_at: item.requested_due_at || item.due_at, extension_requested_at: null, extension_requested_by: null, requested_due_at: null, extension_note: "" }
+              : { ...item, extension_requested_at: null, extension_requested_by: null, requested_due_at: null, extension_note: "" }
+            : item),
+        }));
+        return;
+      }
+      await checked(client!.rpc("respond_task_extension", { task_id: task.id, action }));
+    }, action === "accept" ? "New deadline accepted" : "Extension declined");
   }
   async function saveSettings(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -1503,6 +1618,30 @@ export default function Workspace({
                   </button>
                 </>
               )}
+              {t.accepted_at && !t.extension_requested_at && (
+                <button
+                  className="plain"
+                  disabled={busy}
+                  onClick={() => openModal({ kind: "extension", task: t })}
+                >
+                  <TimerReset size={15} /> Ask for more time
+                </button>
+              )}
+              {t.extension_requested_at && t.extension_requested_by === userId && (
+                <span className="status">Extension waiting for a response</span>
+              )}
+            </div>
+          )}
+          {t.creator_id === userId && t.extension_requested_at && (
+            <div className="extension-request">
+              <p className="meta">
+                {name(t.assignee_id)} asks until {t.requested_due_at ? formatDate(t.requested_due_at) : "a later date"}.
+                {t.extension_note ? ` “${t.extension_note}”` : ""}
+              </p>
+              <div className="task-actions">
+                <button className="plain" disabled={busy} onClick={() => void respondToExtension(t, "accept")}>Accept new deadline</button>
+                <button className="plain muted" disabled={busy} onClick={() => void respondToExtension(t, "decline")}>Decline</button>
+              </div>
             </div>
           )}
           {t.creator_id === userId &&
@@ -1604,7 +1743,7 @@ export default function Workspace({
             onClick={() => setNoticeOpen((open) => !open)}
           >
             <Bell size={17} />
-            {!!unreadNotificationCount && <span className="notification-dot" />}
+            {!!unreadNotificationCount && !quietNow && <span className="notification-dot" />}
           </button>
           {noticeOpen && (
             <div className="notification-popover" role="dialog" aria-label="Notifications">
@@ -1923,6 +2062,9 @@ export default function Workspace({
                         {name(e.user_id)}
                       </span>
                       <strong className="serif">{e.title}</strong>
+                      <small className="window-kind">
+                        {momentKindLabel(e.moment_kind)}{e.ritual_rule ? ` · ${e.ritual_rule} ritual` : ""}
+                      </small>
                     </button>
                   ))}
               </div>
@@ -2228,6 +2370,14 @@ export default function Workspace({
                   <button type="button" className="btn" disabled={busy} onClick={() => void exportData()}>
                     <Download size={15} /> Export my data
                   </button>
+                  <button type="button" className="btn" disabled={busy} onClick={() => void perform(async () => {
+                    if (!demo) {
+                      const result = await client!.auth.signOut({ scope: "others" });
+                      if (result.error) throw result.error;
+                    }
+                  }, "Other devices signed out")}>
+                    <LogOut size={15} /> Sign out other devices
+                  </button>
                 </div>
                 {!demo && (
                   <form className="password-form" onSubmit={savePassword}>
@@ -2252,6 +2402,21 @@ export default function Workspace({
                     <Trash2 size={15} /> Delete account and shared data
                   </button>
                 )}
+              </section>
+              <section className="settings-form">
+                <h2>Quiet hours</h2>
+                <p className="meta">Activity stays saved, but reminders and the notification badge wait until your quiet hours end.</p>
+                <div className="form-row">
+                  <label>
+                    Start
+                    <input type="time" value={quietHours.start} onChange={(e) => setQuietHours((current) => ({ ...current, start: e.target.value }))} />
+                  </label>
+                  <label>
+                    End
+                    <input type="time" value={quietHours.end} onChange={(e) => setQuietHours((current) => ({ ...current, end: e.target.value }))} />
+                  </label>
+                </div>
+                <p className="meta">This preference is saved on this device only, so each of you can protect a different rest window.</p>
               </section>
               <form className="settings-form" onSubmit={saveSettings}>
                 <h2>Time for two</h2>
@@ -2424,10 +2589,12 @@ export default function Workspace({
                 ? modal.event
                   ? "A moment in the day."
                   : "Block your busy time."
-                : modal?.kind === "task"
-                  ? modal.task
-                    ? "Change the terms."
-                    : "Make a commitment."
+                  : modal?.kind === "task"
+                    ? modal.task
+                      ? "Change the terms."
+                      : "Make a commitment."
+                  : modal?.kind === "extension"
+                    ? "Ask for a little more time."
                   : modal?.kind === "note"
                     ? modal.note
                       ? "A little reminder."
@@ -2449,6 +2616,8 @@ export default function Workspace({
                     ? modal.task
                       ? "Honest renegotiation keeps a promise visible without turning it into a trap."
                       : "Agree on who, when, and what’s at stake."
+                    : modal?.kind === "extension"
+                      ? "Your partner will decide whether the new deadline works for both of you."
                     : modal?.kind === "request"
                       ? "Use your partner’s hadzar nickname to send a request."
                       : modal?.kind === "requests"
@@ -2601,6 +2770,23 @@ export default function Workspace({
                     />
                   </label>
                 )}
+                {modal?.kind === "extension" && (
+                  <>
+                    <label>
+                      New deadline · your device timezone
+                      <input
+                        name="extension_due"
+                        type="datetime-local"
+                        required
+                        defaultValue={modal.task?.requested_due_at ? localDateTime(modal.task.requested_due_at) : localDateTime(new Date(now + 24 * 60 * 60 * 1000).toISOString())}
+                      />
+                    </label>
+                    <label>
+                      A short note (optional)
+                      <textarea name="extension_note" rows={3} maxLength={1000} placeholder="What changed?" defaultValue={modal.task?.extension_note || ""} />
+                    </label>
+                  </>
+                )}
                 {modal?.kind === "event" && (
                   <div className="form-row">
                     <label>
@@ -2635,10 +2821,28 @@ export default function Workspace({
                   </label>
                 )}
                 {modal?.kind === "plan" && (
-                  <p>
-                    {time(modal.start!)}–{time(modal.end!)} ·{" "}
-                    {duration(modal.end! - modal.start!)}
-                  </p>
+                  <>
+                    <p>
+                      {time(modal.start!)}–{time(modal.end!)} ·{" "}
+                      {duration(modal.end! - modal.start!)}
+                    </p>
+                    <Choice
+                      name="moment_kind"
+                      label="What kind of time is this?"
+                      value="open"
+                      options={momentKinds.map((item) => ({ value: item.value, label: item.label }))}
+                    />
+                    <Choice
+                      name="ritual_rule"
+                      label="Repeat this moment"
+                      value="none"
+                      options={[
+                        { value: "none", label: "Only this time" },
+                        { value: "weekly", label: "Every week · 4 times" },
+                        { value: "monthly", label: "Every month · 3 times" },
+                      ]}
+                    />
+                  </>
                 )}
                 {modal?.kind === "note" && (
                   <>
@@ -2744,6 +2948,8 @@ export default function Workspace({
                         ? "Send request"
                       : modal?.kind === "task"
                         ? modal.task ? "Save new terms" : "Save commitment"
+                        : modal?.kind === "extension"
+                          ? "Send extension request"
                         : modal?.kind === "plan"
                           ? "Add our plan"
                           : "Save"}

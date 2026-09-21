@@ -22,6 +22,7 @@ await db.exec(await readFile(new URL("../supabase/migrations/202609200001_produc
 await db.exec(await readFile(new URL("../supabase/migrations/202609210001_focus_integrity.sql", import.meta.url), "utf8"));
 await db.exec(await readFile(new URL("../supabase/migrations/202609220001_shared_plans_notifications.sql", import.meta.url), "utf8"));
 await db.exec(await readFile(new URL("../supabase/migrations/202609230001_moment_followthrough.sql", import.meta.url), "utf8"));
+await db.exec(await readFile(new URL("../supabase/migrations/202609240001_rituals_extensions.sql", import.meta.url), "utf8"));
 const ids = [
   "11111111-1111-4111-8111-111111111111",
   "22222222-2222-4222-8222-222222222222",
@@ -125,6 +126,17 @@ const changedTask = (await db.query(
 await db.query("select public.renegotiate_task($1,now()+interval '3 days',3500)", [changedTask]);
 assert.equal((await db.query("select penalty from public.tasks where id=$1", [changedTask])).rows[0].penalty, 3500);
 assert.equal((await db.query("select accepted_at from public.tasks where id=$1", [changedTask])).rows[0].accepted_at, null);
+const extensionTask = (await db.query(
+  "select public.add_task('Need more time','', $1,now()+interval '1 day',1000) as id",
+  [ids[1]],
+)).rows[0].id;
+await asUser(ids[1]);
+await db.query("select public.act_on_task($1,'accept')", [extensionTask]);
+await db.query("select public.request_task_extension($1,now()+interval '4 days','Travel took longer')", [extensionTask]);
+assert.ok((await db.query("select extension_requested_at from public.tasks where id=$1", [extensionTask])).rows[0].extension_requested_at);
+await asUser(ids[0]);
+await db.query("select public.respond_task_extension($1,'accept')", [extensionTask]);
+assert.ok((await db.query("select due_at > now()+interval '3 days' as extended from public.tasks where id=$1", [extensionTask])).rows[0].extended);
 await db.query("insert into public.message_reads(couple_id,user_id,last_read_at) values($1,$2,now())", [pair, ids[0]]);
 await fails("insert into public.message_reads(couple_id,user_id) values($1,$2)", [pair, ids[1]]);
 await asUser(ids[2]);
@@ -171,6 +183,16 @@ assert.equal((await db.query("select plan_status from public.events where id=$1"
 await asUser(ids[0]);
 await db.query("select public.complete_plan($1)", [proposed]);
 assert.equal((await db.query("select plan_status from public.events where id=$1", [proposed])).rows[0].plan_status, "completed");
+for (const ritualDay of ["2026-09-23", "2026-09-30", "2026-10-07"]) {
+  await asUser(ids[0]);
+  await db.query("insert into public.schedule_days values($1,$2,$3)", [pair, ids[0], ritualDay]);
+  await asUser(ids[1]);
+  await db.query("insert into public.schedule_days values($1,$2,$3)", [pair, ids[1], ritualDay]);
+}
+await asUser(ids[0]);
+await db.query("select public.propose_recurring_window('2026-09-16',960,1050,'Weekly walk','', 'ritual','weekly',4)");
+assert.equal(Number((await db.query("select count(*) from public.events where ritual_rule='weekly' and ritual_group_id is not null")).rows[0].count), 4);
+assert.equal((await db.query("select distinct moment_kind from public.events where ritual_rule='weekly'")).rows[0].moment_kind, "ritual");
 await asUser(ids[0]);
 await db.query("insert into public.notes(couple_id,author_id,title,visibility) values($1,$2,'Only me','private')", [pair, ids[0]]);
 await asUser(ids[1]);
