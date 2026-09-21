@@ -334,7 +334,7 @@ export default function Workspace({
     return () => clearInterval(id);
   }, []);
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || quietNow) return;
     const storageKey = `hadzar-note-reminders-${couple.id}-${userId}`;
     let delivered: string[] = [];
     try { delivered = JSON.parse(localStorage.getItem(storageKey) || "[]"); } catch { delivered = []; }
@@ -350,7 +350,7 @@ export default function Workspace({
     queueMicrotask(() => setNotices((current) => [...fresh, ...current.filter((notice) => !fresh.some((item) => item.id === notice.id))]));
     const next = [...delivered, ...due.map((note) => note.id)].slice(-100);
     localStorage.setItem(storageKey, JSON.stringify(next));
-  }, [couple.id, data.notes, now, userId]);
+  }, [couple.id, data.notes, now, quietNow, userId]);
   useEffect(() => {
     if (typeof window !== "undefined") localStorage.setItem(`hadzar-outbox-${couple.id}-${userId}`, JSON.stringify(queuedMessages));
   }, [couple.id, userId, queuedMessages]);
