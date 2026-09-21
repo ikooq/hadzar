@@ -2182,3 +2182,162 @@ small,
     flex-shrink: 0;
   }
 }
+
+/* Quiet depth system: the workspace stays calm while layers move gently into focus. */
+.app-shell {
+  --scroll-y: 0px;
+  position: relative;
+  isolation: isolate;
+  overflow-x: clip;
+  background:
+    radial-gradient(circle at 12% 4%, rgba(88, 119, 141, 0.11), transparent 27rem),
+    radial-gradient(circle at 92% 18%, rgba(130, 112, 140, 0.09), transparent 25rem),
+    var(--background);
+}
+.app-shell::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(115deg, rgba(255, 255, 255, 0.18), transparent 42%, rgba(255, 255, 255, 0.08));
+  opacity: 0.7;
+}
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: rgba(232, 236, 239, 0.88);
+  backdrop-filter: blur(18px) saturate(1.05);
+  box-shadow: 0 1px 0 rgba(37, 49, 57, 0.1), 0 12px 30px rgba(37, 49, 57, 0.04);
+}
+.desktop-tabs {
+  position: sticky;
+  top: 92px;
+  z-index: 20;
+  background: rgba(232, 236, 239, 0.92);
+  backdrop-filter: blur(14px);
+}
+.screen {
+  width: min(100%, 1160px);
+  margin-inline: auto;
+}
+.work-area {
+  position: relative;
+  perspective: 1400px;
+}
+.personal-column {
+  border-left: 1px solid rgba(37, 49, 57, 0.1);
+  background: linear-gradient(180deg, rgba(240, 243, 245, 0.92), rgba(235, 240, 242, 0.86));
+  backdrop-filter: blur(10px);
+}
+.notes-panel,
+.chat-panel {
+  transform-origin: 50% 0;
+}
+.notes-panel {
+  background: linear-gradient(180deg, rgba(248, 250, 251, 0.5), transparent);
+}
+.chat-panel {
+  background: linear-gradient(180deg, rgba(248, 250, 251, 0.22), transparent 38%);
+}
+.screen-heading h1 {
+  text-wrap: balance;
+}
+.btn,
+.icon-btn,
+.setup-step,
+.week-candidate,
+.compact-task,
+.mobile-nav > button {
+  transition: transform 180ms ease, background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease, color 180ms ease;
+}
+.btn:hover,
+.setup-step:hover,
+.week-candidate:hover,
+.compact-task:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(37, 49, 57, 0.08);
+}
+.icon-btn:hover {
+  transform: translateY(-1px);
+}
+.shared-window.hero {
+  box-shadow: 0 20px 38px rgba(203, 168, 48, 0.2), 0 4px 10px rgba(37, 49, 57, 0.08);
+  animation: hadzar-hero-breathe 6s ease-in-out infinite;
+  transform-origin: 50% 50%;
+}
+.shared-window.hero:hover {
+  box-shadow: 0 24px 46px rgba(203, 168, 48, 0.27), 0 7px 15px rgba(37, 49, 57, 0.1);
+}
+.commitment,
+.reflection-grid > div,
+.week-candidate,
+.setup-panel,
+.penalty-total {
+  box-shadow: 0 12px 28px rgba(37, 49, 57, 0.035);
+}
+.commitment:hover {
+  transform: perspective(1000px) rotateX(0.8deg) translateY(-2px);
+  box-shadow: 0 16px 34px rgba(37, 49, 57, 0.08);
+}
+.motion-ready [data-reveal] {
+  opacity: 0;
+  transform: perspective(1400px) translate3d(0, 22px, 0) rotateX(2.4deg) scale(0.985);
+  transform-origin: 50% 0;
+  transition: opacity 560ms cubic-bezier(0.22, 1, 0.36, 1), transform 720ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
+}
+.motion-ready [data-reveal].is-visible {
+  opacity: 1;
+  transform: perspective(1400px) translate3d(0, var(--depth-shift, 0px), 0) rotateX(var(--depth-tilt, 0deg)) scale(1);
+}
+.motion-ready [data-reveal="header"] {
+  transition-duration: 480ms;
+}
+.motion-ready [data-reveal="hero"] {
+  transition-delay: 80ms;
+}
+.motion-ready [data-reveal="panel"] {
+  transition-delay: 140ms;
+}
+.motion-ready [data-reveal="timeline"] {
+  transition-delay: 190ms;
+}
+.commitment-list > [data-reveal="card"]:nth-child(2),
+.penalty-row[data-reveal="card"]:nth-of-type(3) {
+  transition-delay: 90ms;
+}
+.commitment-list > [data-reveal="card"]:nth-child(3),
+.penalty-row[data-reveal="card"]:nth-of-type(4) {
+  transition-delay: 150ms;
+}
+@keyframes hadzar-hero-breathe {
+  0%, 100% { transform: translateZ(0) scale(1); }
+  50% { transform: translateZ(8px) scale(1.006); }
+}
+@media (max-width: 1023px) {
+  .desktop-tabs {
+    top: 80px;
+  }
+  .app-header {
+    background: rgba(232, 236, 239, 0.93);
+  }
+  .personal-column {
+    border-left: 0;
+  }
+  .screen {
+    width: 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-ready [data-reveal],
+  .motion-ready [data-reveal].is-visible {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+  .shared-window.hero {
+    animation: none !important;
+  }
+}

@@ -223,6 +223,7 @@ export default function Workspace({
   const chatEnd = useRef<HTMLDivElement>(null),
     chatScroll = useRef<HTMLDivElement>(null),
     nearBottom = useRef(true),
+    motionFrame = useRef<number | null>(null),
     noticeSnapshot = useRef<{ latestMessage: string; pendingRequests: number; tasks: Record<string, string> } | null>(null);
   const couple = data.couple,
     me = data.profiles.find((p) => p.id === userId)!,
@@ -333,6 +334,49 @@ export default function Workspace({
     const id = setInterval(() => setNow(Date.now()), 30000);
     return () => clearInterval(id);
   }, []);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const shell = document.querySelector<HTMLElement>(".app-shell");
+    if (!shell) return;
+    shell.classList.add("motion-ready");
+    const revealItems = Array.from(shell.querySelectorAll<HTMLElement>("[data-reveal]"));
+    let observer: IntersectionObserver | null = null;
+    if ("IntersectionObserver" in window) {
+      observer = new IntersectionObserver((entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting) {
+              entry.target.classList.add("is-visible");
+              observer?.unobserve(entry.target);
+            }
+          });
+        }, { threshold: 0.08, rootMargin: "0px 0px -8% 0px" });
+    }
+    revealItems.forEach((item) => observer?.observe(item));
+    const updateDepth = () => {
+      motionFrame.current = null;
+      const viewport = Math.max(window.innerHeight, 1);
+      revealItems.forEach((item) => {
+        const rect = item.getBoundingClientRect();
+        const distance = (rect.top + rect.height / 2 - viewport / 2) / (viewport / 2);
+        const normalized = Math.max(-1, Math.min(1, distance));
+        item.style.setProperty("--depth-shift", `${normalized * -7}px`);
+        item.style.setProperty("--depth-tilt", `${normalized * 1.15}deg`);
+      });
+      shell.style.setProperty("--scroll-y", `${Math.min(window.scrollY || 0, 220)}px`);
+    };
+    const onScroll = () => {
+      if (motionFrame.current !== null) return;
+      motionFrame.current = window.requestAnimationFrame(updateDepth);
+    };
+    updateDepth();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      observer?.disconnect();
+      if (motionFrame.current !== null) window.cancelAnimationFrame(motionFrame.current);
+      motionFrame.current = null;
+    };
+  }, [view]);
   useEffect(() => {
     if (typeof window === "undefined" || quietNow) return;
     const storageKey = `hadzar-note-reminders-${couple.id}-${userId}`;
@@ -1358,7 +1402,7 @@ export default function Workspace({
   }
   function notesPanel(full = false) {
     return (
-      <section className={"notes-panel " + (full ? "full" : "")}>
+      <section className={"notes-panel " + (full ? "full" : "")} data-reveal="panel">
         <div className="panel-title">
           <h2>
             Little notes <span className="count">{data.notes.length}</span>
@@ -1421,7 +1465,7 @@ export default function Workspace({
   }
   function chatPanel(full = false) {
     return (
-      <section className={"chat-panel " + (full ? "full" : "")}>
+      <section className={"chat-panel " + (full ? "full" : "")} data-reveal="panel">
           <div className="panel-title">
             <div>
               <h2>Just us</h2>
@@ -1567,6 +1611,7 @@ export default function Workspace({
           (t.completed_at ? "completed " : "") +
           (t.cancelled_at || t.declined_at ? "closed" : "")
         }
+        data-reveal="card"
         key={t.id}
       >
         <div className="commitment-main">
@@ -1710,7 +1755,7 @@ export default function Workspace({
           <button onClick={onExit}>Back to registration</button>
         </div>
       )}
-      <header className="app-header">
+      <header className="app-header" data-reveal="header">
         <Brand />
         <span className="header-date">
           {new Intl.DateTimeFormat("en-GB", {
@@ -1792,7 +1837,7 @@ export default function Workspace({
             </div>
           )}
           {!partner && (
-            <div className="invite-banner">
+            <div className="invite-banner" data-reveal="banner">
               <Users size={20} />
               <div>
                 <strong>Your half is here.</strong>
@@ -1826,8 +1871,8 @@ export default function Workspace({
             </div>
           )}
           {view === "schedule" && (
-            <div className="screen schedule-screen">
-              <div className="screen-heading">
+            <div className="screen schedule-screen" data-reveal="screen">
+              <div className="screen-heading" data-reveal="hero">
                 <div>
                   <h1>Your day, side by side.</h1>
                   <p className="muted">{dateLabel}</p>
@@ -1840,7 +1885,7 @@ export default function Workspace({
                 </button>
               </div>
               {setupOpen && partner && (
-                <section className="setup-panel">
+                <section className="setup-panel" data-reveal="panel">
                   <div>
                     <span className="meta">A gentle first step</span>
                     <h2>Find your first shared moment.</h2>
@@ -1860,7 +1905,7 @@ export default function Workspace({
                   <button className="plain" onClick={finishSetup}>I’ll explore first</button>
                 </section>
               )}
-              <div className="calendar-toolbar">
+              <div className="calendar-toolbar" data-reveal="panel">
                 <div className="date-controls">
                   <button
                     className="icon-btn"
@@ -1943,6 +1988,7 @@ export default function Workspace({
               </div>
               <div
                 className="timeline"
+                data-reveal="timeline"
                 style={{ height: couple.day_end - couple.day_start + 32 }}
               >
                 {Array.from(
@@ -2103,7 +2149,7 @@ export default function Workspace({
                   </button>
                 </div>
               )}
-              <div className="up-next">
+              <div className="up-next" data-reveal="panel">
                 <div className="panel-title">
                   <h2>A couple of promises</h2>
                   <button className="plain" onClick={() => setView("tasks")}>
@@ -2134,7 +2180,7 @@ export default function Workspace({
                   </p>
                 )}
               </div>
-              <section className="reflection-panel">
+              <section className="reflection-panel" data-reveal="panel">
                 <div className="panel-title">
                   <div>
                     <h2>A little look back</h2>
@@ -2147,7 +2193,7 @@ export default function Workspace({
                   <div><strong className="serif">{activeTasks.length}</strong><span>still open</span></div>
                 </div>
               </section>
-              <section className="week-panel">
+              <section className="week-panel" data-reveal="panel">
                 <div className="panel-title">
                   <div>
                     <h2>Best chances this week</h2>
@@ -2177,8 +2223,8 @@ export default function Workspace({
             </div>
           )}
           {view === "tasks" && (
-            <div className="screen">
-              <div className="screen-heading">
+            <div className="screen" data-reveal="screen">
+              <div className="screen-heading" data-reveal="hero">
                 <div>
                   <h1>Words you can count on.</h1>
                   <p className="muted">Small promises. Clear terms.</p>
@@ -2239,8 +2285,8 @@ export default function Workspace({
             </div>
           )}
           {view === "penalties" && (
-            <div className="screen">
-              <div className="screen-heading">
+            <div className="screen" data-reveal="screen">
+              <div className="screen-heading" data-reveal="hero">
                 <div>
                   <h1>Keeping things fair.</h1>
                   <p className="muted">
@@ -2249,7 +2295,7 @@ export default function Workspace({
                 </div>
                 <ReceiptText size={23} strokeWidth={1.2} />
               </div>
-              <section className="penalty-total">
+              <section className="penalty-total" data-reveal="panel">
                 <span className="muted">To settle</span>
                 <div className="serif">
                   {money(unpaid.reduce((s, t) => s + t.penalty, 0))}
@@ -2264,7 +2310,7 @@ export default function Workspace({
                 <span className="meta">Amounts in KZT</span>
               </div>
               {fees.map((t) => (
-                <article className="penalty-row" key={t.id}>
+                <article className="penalty-row" data-reveal="card" key={t.id}>
                   <div>
                     <h3>{t.title}</h3>
                     <p className="meta">
@@ -2313,8 +2359,8 @@ export default function Workspace({
             </div>
           )}
           {view === "notes" && (
-            <div className="screen standalone-notes">
-              <div className="screen-heading">
+            <div className="screen standalone-notes" data-reveal="screen">
+              <div className="screen-heading" data-reveal="hero">
                 <div>
                   <h1>For another moment.</h1>
                   <p className="muted">Little things worth remembering.</p>
@@ -2324,11 +2370,11 @@ export default function Workspace({
             </div>
           )}
           {view === "chat" && (
-            <div className="screen standalone-chat">{chatPanel(true)}</div>
+            <div className="screen standalone-chat" data-reveal="screen">{chatPanel(true)}</div>
           )}
           {view === "settings" && (
-            <div className="screen settings-screen">
-              <div className="screen-heading">
+            <div className="screen settings-screen" data-reveal="screen">
+              <div className="screen-heading" data-reveal="hero">
                 <div>
                   <h1>Make this space yours.</h1>
                   <p className="muted">
