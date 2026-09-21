@@ -351,7 +351,8 @@ export default function Workspace({
           });
         }, { threshold: 0.08, rootMargin: "0px 0px -8% 0px" });
     }
-    revealItems.forEach((item) => observer?.observe(item));
+    if (observer) revealItems.forEach((item) => observer?.observe(item));
+    else revealItems.forEach((item) => item.classList.add("is-visible"));
     const updateDepth = () => {
       motionFrame.current = null;
       const viewport = Math.max(window.innerHeight, 1);
