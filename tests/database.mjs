@@ -21,6 +21,7 @@ await db.exec(await readFile(new URL("../supabase/migrations/202609190002_repair
 await db.exec(await readFile(new URL("../supabase/migrations/202609200001_product_improvements.sql", import.meta.url), "utf8"));
 await db.exec(await readFile(new URL("../supabase/migrations/202609210001_focus_integrity.sql", import.meta.url), "utf8"));
 await db.exec(await readFile(new URL("../supabase/migrations/202609220001_shared_plans_notifications.sql", import.meta.url), "utf8"));
+await db.exec(await readFile(new URL("../supabase/migrations/202609230001_moment_followthrough.sql", import.meta.url), "utf8"));
 const ids = [
   "11111111-1111-4111-8111-111111111111",
   "22222222-2222-4222-8222-222222222222",
@@ -117,6 +118,13 @@ const cancelledTask = (await db.query(
 )).rows[0].id;
 await db.query("select public.act_on_task($1,'cancel')", [cancelledTask]);
 assert.ok((await db.query("select cancelled_at from public.tasks where id=$1", [cancelledTask])).rows[0].cancelled_at);
+const changedTask = (await db.query(
+  "select public.add_task('Change terms','', $1,now()+interval '1 day',1000) as id",
+  [ids[1]],
+)).rows[0].id;
+await db.query("select public.renegotiate_task($1,now()+interval '3 days',3500)", [changedTask]);
+assert.equal((await db.query("select penalty from public.tasks where id=$1", [changedTask])).rows[0].penalty, 3500);
+assert.equal((await db.query("select accepted_at from public.tasks where id=$1", [changedTask])).rows[0].accepted_at, null);
 await db.query("insert into public.message_reads(couple_id,user_id,last_read_at) values($1,$2,now())", [pair, ids[0]]);
 await fails("insert into public.message_reads(couple_id,user_id) values($1,$2)", [pair, ids[1]]);
 await asUser(ids[2]);
@@ -160,6 +168,9 @@ await fails("select public.respond_to_plan($1,'accept','')", [proposed]);
 await asUser(ids[1]);
 await db.query("select public.respond_to_plan($1,'accept','')", [proposed]);
 assert.equal((await db.query("select plan_status from public.events where id=$1", [proposed])).rows[0].plan_status, "accepted");
+await asUser(ids[0]);
+await db.query("select public.complete_plan($1)", [proposed]);
+assert.equal((await db.query("select plan_status from public.events where id=$1", [proposed])).rows[0].plan_status, "completed");
 await asUser(ids[0]);
 await db.query("insert into public.notes(couple_id,author_id,title,visibility) values($1,$2,'Only me','private')", [pair, ids[0]]);
 await asUser(ids[1]);

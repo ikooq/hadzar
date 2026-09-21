@@ -8,6 +8,7 @@ import {
   type Dispatch,
   type SetStateAction,
   type FormEvent,
+  type ChangeEvent,
 } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
@@ -29,6 +30,8 @@ import {
   Download,
   KeyRound,
   CalendarPlus,
+  BookmarkPlus,
+  Upload,
   WifiOff,
   Trash2,
   Users,
@@ -69,18 +72,20 @@ import {
   type Message,
   type PairRequest,
 } from "@/lib/types";
-import { sharedWindows } from "@/lib/schedule";
+import { rankSharedWindows, sharedWindows } from "@/lib/schedule";
 import { pairRequestError } from "@/lib/pair-requests";
 import { friendlyError } from "@/lib/errors";
 import { OutgoingPairRequestList, PairRequestList } from "./pair-request-list";
 
 type View = "schedule" | "tasks" | "penalties" | "notes" | "chat" | "settings";
-type WeekCandidate = { day: string; start: number; end: number };
+type WeekCandidate = { day: string; start: number; end: number; score: number; label: string; reason: string };
 type LocalNotice = { id: string; title: string; body: string; at: number; read?: boolean };
 type QueuedMessage = { id: string; body: string; created_at: string; sender_id: string };
 type Modal = {
   kind: "event" | "task" | "note" | "invite" | "plan" | "request" | "requests";
   note?: Note;
+  task?: Task;
+  prefill?: { title?: string; body?: string };
   event?: DayEvent;
   start?: number;
   end?: number;
@@ -114,17 +119,19 @@ function Choice({
   label,
   value,
   options,
+  disabled = false,
 }: {
   name: string;
   label: string;
   value: string;
   options: { value: string; label: string }[];
+  disabled?: boolean;
 }) {
   return (
     <label>
       {label}
       <Select name={name} defaultValue={value}>
-        <SelectTrigger className="choice">
+        <SelectTrigger className="choice" disabled={disabled}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -225,6 +232,11 @@ export default function Workspace({
       minute: "2-digit",
       timeZone: couple.timezone,
     }).format(new Date(value));
+  const localDateTime = (value: string) => {
+    const date = new Date(value);
+    const pad = (part: number) => String(part).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  };
   const chatDayKey = (value: string | number) => {
     const parts = new Intl.DateTimeFormat("en-GB", {
       day: "2-digit",
@@ -388,7 +400,8 @@ export default function Workspace({
           const currentDayEvents = data.events.filter((event) => event.day === day);
           setWeekCandidates(
             data.ready.filter((r) => r.day === day).length === 2
-              ? sharedWindows(currentDayEvents, couple).map((window) => ({ day, ...window }))
+              ? rankSharedWindows(sharedWindows(currentDayEvents, couple), currentDayEvents, couple, day, day)
+                .map((window) => ({ day, ...window }))
               : [],
           );
         }
@@ -411,12 +424,16 @@ export default function Workspace({
       const candidates = days.flatMap((candidateDay) => {
         const readyForDay = (readyResult.data || []).filter((entry) => entry.day === candidateDay);
         if (readyForDay.length !== 2) return [];
-        return sharedWindows(
-          (eventResult.data || []).filter((event) => event.day === candidateDay),
+        const dayEvents = (eventResult.data || []).filter((event) => event.day === candidateDay);
+        return rankSharedWindows(
+          sharedWindows(dayEvents, couple),
+          dayEvents,
           couple,
+          candidateDay,
+          dayInZone(couple.timezone),
         ).map((window) => ({ day: candidateDay, ...window }));
       });
-      candidates.sort((a, b) => (b.end - b.start) - (a.end - a.start) || a.day.localeCompare(b.day) || a.start - b.start);
+      candidates.sort((a, b) => b.score - a.score || a.day.localeCompare(b.day) || a.start - b.start);
       setWeekCandidates(candidates.slice(0, 3));
     }).catch(() => {
       if (active) setWeekCandidates([]);
@@ -838,6 +855,26 @@ export default function Workspace({
         const due_at = new Date(String(f.get("due"))).toISOString();
         if (Date.parse(due_at) <= Date.now())
           throw new Error("Choose a future deadline.");
+        if (modal.task) {
+          const penalty = Number(f.get("penalty"));
+          if (!Number.isInteger(penalty) || penalty < 0 || penalty > 1000000)
+            throw new Error("Choose a valid penalty.");
+          if (demo) {
+            update((d) => ({
+              ...d,
+              tasks: d.tasks.map((item) => item.id === modal.task!.id
+                ? { ...item, due_at, penalty, accepted_at: item.assignee_id === userId ? item.accepted_at : null }
+                : item),
+            }));
+          } else {
+            await checked(client!.rpc("renegotiate_task", {
+              task_id: modal.task.id,
+              new_deadline: due_at,
+              new_penalty: penalty,
+            }));
+          }
+          return;
+        }
         const assignee_id = String(f.get("assignee"));
         const record = {
           id: crypto.randomUUID(),
@@ -917,6 +954,18 @@ export default function Workspace({
       }
       await checked(client!.rpc("respond_to_plan", { plan_id: event.id, action, note: "" }));
     }, action === "accept" ? "Plan accepted" : action === "decline" ? "Plan declined" : "Reschedule requested");
+  }
+  async function completePlan(event: DayEvent) {
+    await perform(async () => {
+      if (demo) {
+        update((d) => ({
+          ...d,
+          events: d.events.map((item) => item.id === event.id ? { ...item, plan_status: "completed" as const } : item),
+        }));
+        return;
+      }
+      await checked(client!.rpc("complete_plan", { plan_id: event.id }));
+    }, "Shared moment marked as happened");
   }
   async function saveSettings(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -1142,6 +1191,56 @@ export default function Workspace({
     URL.revokeObjectURL(url);
     toast.success("Calendar file downloaded");
   }
+  async function importIcs(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.currentTarget.files?.[0];
+    e.currentTarget.value = "";
+    if (!file) return;
+    try {
+      const unfolded = (await file.text()).replace(/\r?\n[ \t]/g, "");
+      const entries = [...unfolded.matchAll(/BEGIN:VEVENT([\s\S]*?)END:VEVENT/g)];
+      const parseField = (body: string, key: string) => {
+        const line = body.split(/\r?\n/).find((item) => item.startsWith(key + ":") || item.startsWith(key + ";"));
+        if (!line) return null;
+        return line.slice(line.indexOf(":") + 1).replace(/\\n/g, "\n").replace(/\\,/g, ",").replace(/\\;/g, ";").trim();
+      };
+      const parseDate = (value: string) => {
+        const clean = value.replace(/[^0-9TZ]/g, "");
+        if (clean.length < 13) return null;
+        const rawDay = `${clean.slice(0, 4)}-${clean.slice(4, 6)}-${clean.slice(6, 8)}`;
+        if (clean.endsWith("Z")) {
+          const instant = new Date(clean.replace(/(\d{8}T\d{6})Z$/, "$1Z").replace(/(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z/, "$1-$2-$3T$4:$5:$6Z"));
+          if (Number.isNaN(instant.getTime())) return null;
+          const parts = new Intl.DateTimeFormat("en-GB", { timeZone: couple.timezone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(instant);
+          return { day: dayInZone(couple.timezone, instant), start: Number(parts.find((part) => part.type === "hour")?.value || 0) * 60 + Number(parts.find((part) => part.type === "minute")?.value || 0) };
+        }
+        return { day: rawDay, start: Number(clean.slice(9, 11)) * 60 + Number(clean.slice(11, 13)) };
+      };
+      const records = entries.flatMap(([, body]) => {
+        const start = parseDate(parseField(body, "DTSTART") || "");
+        const end = parseDate(parseField(body, "DTEND") || "");
+        if (!start || !end || start.day !== end.day || end.start <= start.start) return [];
+        return [{
+          id: crypto.randomUUID(),
+          couple_id: couple.id,
+          user_id: userId,
+          day: start.day,
+          title: (parseField(body, "SUMMARY") || "Imported busy time").slice(0, 120),
+          start_min: start.start,
+          end_min: end.start,
+          shared: false,
+          series_id: null,
+          series_rule: null,
+        }];
+      });
+      if (!records.length) throw new Error("No single-day events could be read from this calendar file.");
+      await perform(async () => {
+        if (demo) update((d) => ({ ...d, events: [...d.events, ...records] }));
+        else await checked(client!.from("events").insert(records));
+      }, `${records.length} busy ${records.length === 1 ? "block" : "blocks"} imported`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not import this calendar file.");
+    }
+  }
   function notesPanel(full = false) {
     return (
       <section className={"notes-panel " + (full ? "full" : "")}>
@@ -1267,6 +1366,15 @@ export default function Workspace({
                     }
                   >
                     <p>{m.body}</p>
+                    <button
+                      type="button"
+                      className="message-save"
+                      aria-label="Save message as a note"
+                      title="Save as note"
+                      onClick={() => openModal({ kind: "note", prefill: { title: `From ${name(m.sender_id)}`, body: m.body } })}
+                    >
+                      <BookmarkPlus size={13} /> Save as note
+                    </button>
                     <span
                       className="message-time"
                       title={new Intl.DateTimeFormat("en-GB", {
@@ -1417,12 +1525,19 @@ export default function Workspace({
             !t.declined_at && (
               <div className="task-actions">
                 <button
+                  className="plain"
+                  disabled={busy}
+                  onClick={() => openModal({ kind: "task", task: t })}
+                >
+                  Change terms
+                </button>
+                <button
                   className="plain muted"
                   disabled={busy}
                   onClick={() => taskAction(t, "cancel")}
                 >
-                  Cancel commitment
-                </button>
+                    Cancel commitment
+                  </button>
               </div>
             )}
         </div>
@@ -1442,6 +1557,9 @@ export default function Workspace({
   }
   const selected =
     windows[Math.min(chosenWindow, Math.max(0, windows.length - 1))];
+  const selectedInsight = selected
+    ? rankSharedWindows([selected], allEvents, couple, day, day)[0]
+    : null;
   const heroId = shared[0]?.id;
   return (
     <div className="app-shell">
@@ -1639,6 +1757,10 @@ export default function Workspace({
                 <button className="plain calendar-export" onClick={exportIcs}>
                   <CalendarPlus size={15} /> Export .ics
                 </button>
+                <label className="plain calendar-import" htmlFor="hadzar-ics-import">
+                  <Upload size={15} /> Import .ics
+                  <input id="hadzar-ics-import" className="hidden-input" type="file" accept=".ics,text/calendar" onChange={(e) => void importIcs(e)} />
+                </label>
               </div>
               <div className="schedule-status">
                 <button
@@ -1804,11 +1926,11 @@ export default function Workspace({
                     </button>
                   ))}
               </div>
-              {selected && selected.end - selected.start < 60 && (
+              {selected && selectedInsight && (
                 <div className="short-window-detail">
                   <span>
-                    {duration(selected.end - selected.start)} together ·{" "}
-                    {time(selected.start)}–{time(selected.end)}
+                    <strong>{selectedInsight.label}</strong>{" · "}
+                    {selectedInsight.reason} · {time(selected.start)}–{time(selected.end)}
                   </span>
                   <button
                     className="btn"
@@ -1892,7 +2014,7 @@ export default function Workspace({
                 </div>
                 {weekLoading && <p className="muted">Looking across the next seven days…</p>}
                 {!weekLoading && weekCandidates.length > 0 && (
-                  <div className="week-candidates">
+                    <div className="week-candidates">
                     {weekCandidates.map((candidate) => (
                       <button
                         className="week-candidate"
@@ -1901,7 +2023,7 @@ export default function Workspace({
                       >
                         <span>{new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(candidate.day + "T12:00:00Z"))}</span>
                         <strong>{time(candidate.start)}–{time(candidate.end)}</strong>
-                        <small>{duration(candidate.end - candidate.start)}</small>
+                        <small>{candidate.label} · {candidate.reason}</small>
                       </button>
                     ))}
                   </div>
@@ -2303,7 +2425,9 @@ export default function Workspace({
                   ? "A moment in the day."
                   : "Block your busy time."
                 : modal?.kind === "task"
-                  ? "Make a commitment."
+                  ? modal.task
+                    ? "Change the terms."
+                    : "Make a commitment."
                   : modal?.kind === "note"
                     ? modal.note
                       ? "A little reminder."
@@ -2321,8 +2445,10 @@ export default function Workspace({
                 ? "One invitation. One person. Your space stays private."
                 : modal?.kind === "event" || modal?.kind === "plan"
                   ? `${dateLabel} · ${couple.timezone.replaceAll("_", " ")}`
-                  : modal?.kind === "task"
-                    ? "Agree on who, when, and what’s at stake."
+                : modal?.kind === "task"
+                    ? modal.task
+                      ? "Honest renegotiation keeps a promise visible without turning it into a trap."
+                      : "Agree on who, when, and what’s at stake."
                     : modal?.kind === "request"
                       ? "Use your partner’s hadzar nickname to send a request."
                       : modal?.kind === "requests"
@@ -2407,6 +2533,14 @@ export default function Workspace({
                 {modal.event.shared && modal.event.plan_status === "reschedule_requested" && (
                   <p className="meta">Your partner asked to find another time.</p>
                 )}
+                {modal.event.shared && modal.event.plan_status === "completed" && (
+                  <p className="meta"><CheckCheck size={14} /> This shared moment happened.</p>
+                )}
+                {modal.event.shared && modal.event.plan_status === "accepted" && modal.event.user_id === userId && (
+                  <button className="btn dark" disabled={busy} onClick={() => void completePlan(modal.event!)}>
+                    <CheckCheck size={15} /> Mark as happened
+                  </button>
+                )}
                 {modal.event.user_id === userId && (
                   <div className="dialog-actions">
                     <button
@@ -2453,7 +2587,8 @@ export default function Workspace({
                       name="title"
                       required
                       maxLength={120}
-                      defaultValue={modal?.note?.title || ""}
+                      defaultValue={modal?.note?.title || modal?.prefill?.title || modal?.task?.title || ""}
+                      readOnly={!!modal?.task}
                       placeholder={
                         modal?.kind === "plan"
                           ? "Lunch in the little square"
@@ -2513,7 +2648,7 @@ export default function Workspace({
                         name="body"
                         rows={5}
                         maxLength={10000}
-                        defaultValue={modal.note?.body || ""}
+                        defaultValue={modal.note?.body || modal.prefill?.body || ""}
                         placeholder="Something to remember…"
                       />
                     </label>
@@ -2547,9 +2682,9 @@ export default function Workspace({
                   <>
                     <label>
                       A little context
-                      <textarea name="description" rows={2} maxLength={2000} />
+                      <textarea name="description" rows={2} maxLength={2000} defaultValue={modal.task?.description || ""} readOnly={!!modal.task} />
                     </label>
-                    <Choice
+                    {!modal.task && <Choice
                       name="assignee"
                       label="Who’s responsible?"
                       value={userId}
@@ -2557,10 +2692,10 @@ export default function Workspace({
                         value: p.id,
                         label: p.name + (p.id === userId ? " (you)" : ""),
                       }))}
-                    />
+                    />}
                     <label>
                       Deadline · your device timezone
-                      <input name="due" type="datetime-local" required />
+                      <input name="due" type="datetime-local" required defaultValue={modal.task ? localDateTime(modal.task.due_at) : undefined} />
                     </label>
                     <label>
                       Penalty if missed · ₸
@@ -2570,12 +2705,13 @@ export default function Workspace({
                         min={0}
                         max={1000000}
                         required
-                        defaultValue={couple.default_penalty}
+                        defaultValue={modal.task?.penalty ?? couple.default_penalty}
                       />
                     </label>
                     <p className="meta">
-                      If assigned to your partner, they must accept before the
-                      penalty applies.
+                      {modal.task
+                        ? "Changing terms sends the commitment back for acceptance if your partner is responsible."
+                        : "If assigned to your partner, they must accept before the penalty applies."}
                     </p>
                   </>
                 )}
@@ -2607,7 +2743,7 @@ export default function Workspace({
                       : modal?.kind === "request"
                         ? "Send request"
                       : modal?.kind === "task"
-                        ? "Save commitment"
+                        ? modal.task ? "Save new terms" : "Save commitment"
                         : modal?.kind === "plan"
                           ? "Add our plan"
                           : "Save"}

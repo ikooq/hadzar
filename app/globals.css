@@ -946,6 +946,28 @@ small,
 .bubble p {
   white-space: pre-wrap;
 }
+.message-save {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 7px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 140ms ease, color 140ms ease;
+}
+.bubble:hover .message-save,
+.message-save:focus-visible {
+  opacity: 1;
+}
+.message-save:hover {
+  color: var(--foreground);
+}
 .message-time {
   display: flex;
   justify-content: flex-end;
@@ -1554,6 +1576,30 @@ small,
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+.calendar-import {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.hidden-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+.short-window-detail {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.short-window-detail strong {
+  color: var(--foreground);
 }
 .reflection-panel {
   margin-top: 34px;

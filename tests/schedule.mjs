@@ -11,7 +11,7 @@ const compiled = ts.transpileModule(source, {
     target: ts.ScriptTarget.ES2022,
   },
 }).outputText;
-const { sharedWindows } = await import(
+const { sharedWindows, rankSharedWindows } = await import(
   "data:text/javascript;base64," + Buffer.from(compiled).toString("base64")
 );
 const c = { day_start: 480, day_end: 1320, minimum_window: 30, buffer: 0 };
@@ -58,6 +58,16 @@ assert.deepEqual(
   [{ start: 480, end: 1320 }],
 );
 assert.deepEqual(sharedWindows([{ start_min: 480, end_min: 1320 }], c), []);
+const ranked = rankSharedWindows(
+  [{ start: 540, end: 600 }, { start: 720, end: 900 }],
+  [{ start_min: 600, end_min: 690 }],
+  c,
+  "2026-09-21",
+  "2026-09-21",
+);
+assert.equal(ranked[0].start, 720);
+assert.equal(ranked[0].label, "Best chance");
+assert.match(ranked[0].reason, /breathing room/);
 console.log(
-  "PASS: empty schedules, overlapping busy intervals, buffers, minimum duration, clipping and full-day busy.",
+  "PASS: empty schedules, overlapping busy intervals, buffers, minimum duration, clipping, ranking and full-day busy.",
 );
