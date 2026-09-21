@@ -11,7 +11,7 @@ Live email delivery and password recovery still depend on the connected Supabase
 ## Connect Supabase
 
 1. Create a Supabase project at https://supabase.com/dashboard.
-2. For a new database, run these files in order: `supabase/migrations/202609140001_hadzar.sql`, `supabase/migrations/202609190001_pair_requests.sql`, `supabase/migrations/202609190002_repair_pair_requests.sql`, `supabase/migrations/202609200001_product_improvements.sql`, `supabase/migrations/202609210001_focus_integrity.sql`, `supabase/migrations/202609220001_shared_plans_notifications.sql`, and `supabase/migrations/202609230001_moment_followthrough.sql`. For an existing hadzar database, run the repair, product improvements, focus integrity, shared plans, and moment follow-through files after checking which earlier migrations are already present. They are safe to rerun and refresh the API schema cache. Publishing the website does not apply external Supabase migrations.
+2. For a new database, run these files in order: `supabase/migrations/202609140001_hadzar.sql`, `supabase/migrations/202609190001_pair_requests.sql`, `supabase/migrations/202609190002_repair_pair_requests.sql`, `supabase/migrations/202609200001_product_improvements.sql`, `supabase/migrations/202609210001_focus_integrity.sql`, `supabase/migrations/202609220001_shared_plans_notifications.sql`, `supabase/migrations/202609230001_moment_followthrough.sql`, and `supabase/migrations/202609240001_rituals_extensions.sql`. For an existing hadzar database, run the repair, product improvements, focus integrity, shared plans, moment follow-through, and rituals/extensions files after checking which earlier migrations are already present. They are safe to rerun and refresh the API schema cache. Publishing the website does not apply external Supabase migrations.
 3. In Authentication, enable Email and password, require email confirmation, and set a minimum password length of 8 or greater.
 4. Set Site URL to the final hadzar URL. Allow that origin's root, invitation query URLs, and `/?recovery=1` as authentication redirect URLs. For local development allow `http://localhost:5173/**` as well. Use exact production-origin patterns, not an unrestricted global wildcard.
 5. Configure custom SMTP for confirmations and password resets before public registration. Supabase's default mail service is for testing and limits recipients/delivery.
@@ -43,6 +43,8 @@ Supabase documentation: https://supabase.com/docs/guides/auth/passwords and http
 - New accounts get a short first-run setup panel that points to shared hours, a first busy block, and day confirmation without blocking exploration.
 - Desktop keeps notes and chat in a right column. Mobile uses six tabs. The sample workspace is ephemeral; real records live in Supabase, not browser storage. Supabase manages the login session in browser storage.
 - No external calendar synchronization, automatic bank debit or push notifications are claimed or configured.
+- Shared plans can be labelled as a date, quick catch-up, errands, quiet time, or a recurring ritual. Weekly and monthly rituals are created atomically, and a responsible partner can request a deadline extension for the creator to accept or decline.
+- Local quiet hours prevent notification badges and due-date reminders from interrupting the couple's chosen rest window. The preference is device-local by design; durable activity notifications remain available in the in-app panel.
 
 ## Development
 

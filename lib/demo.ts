@@ -131,6 +131,10 @@ export function demoData(day: string): Data {
         cancelled_at: null,
         waived_at: null,
         created_at: stamp(8),
+        extension_requested_at: null,
+        extension_requested_by: null,
+        requested_due_at: null,
+        extension_note: "",
       },
     ],
     notes: [

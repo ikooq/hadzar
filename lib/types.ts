@@ -23,6 +23,9 @@ export type DayEvent = {
   series_rule?: string | null;
   plan_status?: "none" | "proposed" | "accepted" | "reschedule_requested" | "declined" | "completed";
   plan_note?: string | null;
+  moment_kind?: "open" | "date" | "quick_catch_up" | "errands" | "quiet_time" | "ritual";
+  ritual_group_id?: string | null;
+  ritual_rule?: "weekly" | "monthly" | null;
   hold_expires_at?: string | null;
 };
 export type DayReady = { couple_id: string; user_id: string; day: string };
@@ -42,6 +45,10 @@ export type Task = {
   declined_at: string | null;
   cancelled_at: string | null;
   waived_at: string | null;
+  extension_requested_at?: string | null;
+  extension_requested_by?: string | null;
+  requested_due_at?: string | null;
+  extension_note?: string | null;
   created_at: string;
 };
 export type Note = {
