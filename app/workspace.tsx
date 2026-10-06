@@ -77,6 +77,7 @@ import { rankSharedWindows, sharedWindows } from "@/lib/schedule";
 import { pairRequestError } from "@/lib/pair-requests";
 import { friendlyError } from "@/lib/errors";
 import { OutgoingPairRequestList, PairRequestList } from "./pair-request-list";
+import { MfaSettings } from "./mfa";
 
 type View = "schedule" | "tasks" | "penalties" | "notes" | "chat" | "settings";
 type WeekCandidate = { day: string; start: number; end: number; score: number; label: string; reason: string };
@@ -2485,6 +2486,7 @@ export default function Workspace({
                   </button>
                 )}
               </section>
+              {!demo && client && <MfaSettings client={client} />}
               <section className="settings-form">
                 <h2>Quiet hours</h2>
                 <p className="meta">Activity stays saved, but reminders and the notification badge wait until your quiet hours end.</p>
