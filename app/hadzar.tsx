@@ -10,6 +10,7 @@ import { demoData } from "@/lib/demo";
 import { pairRequestError } from "@/lib/pair-requests";
 import { friendlyError } from "@/lib/errors";
 import { OutgoingPairRequestList, PairRequestList } from "./pair-request-list";
+import { MfaChallenge } from "./mfa";
 export default function Hadzar() {
   const [client, setClient] = useState<SupabaseClient | null>(null),
     [user, setUser] = useState<User | null>(null),
@@ -19,6 +20,8 @@ export default function Hadzar() {
     [requestsAvailable, setRequestsAvailable] = useState(true),
     [requestSent, setRequestSent] = useState(false),
     [loading, setLoading] = useState(true),
+    [mfaRequired, setMfaRequired] = useState(false),
+    [mfaChecking, setMfaChecking] = useState(false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [recovery, setRecovery] = useState(() =>
@@ -40,6 +43,23 @@ export default function Hadzar() {
   const loadVersion = useRef(0);
   const identity = useRef<string | null>(null);
   const pairDayInitialized = useRef(false);
+  const checkMfa = useCallback(async (c: SupabaseClient, signedIn: boolean) => {
+    if (!signedIn) {
+      setMfaRequired(false);
+      setMfaChecking(false);
+      return;
+    }
+    setMfaChecking(true);
+    const result = await c.auth.mfa.getAuthenticatorAssuranceLevel();
+    if (result.error) {
+      setError(friendlyError(result.error, "Could not check sign-in security."));
+      setMfaRequired(false);
+    } else {
+      setMfaRequired(result.data.currentLevel === "aal1" && result.data.nextLevel === "aal2");
+    }
+    setMfaChecking(false);
+    setLoading(false);
+  }, []);
   useEffect(() => {
     let unsub: (() => void) | undefined;
     let active = true;
@@ -60,6 +80,7 @@ export default function Hadzar() {
               setLoading(true);
             identity.current = session?.user.id ?? null;
             setUser(session?.user ?? null);
+            queueMicrotask(() => void checkMfa(c, !!session));
             if (event === "PASSWORD_RECOVERY") {
               setRecovery(true);
               setLoading(false);
@@ -72,6 +93,8 @@ export default function Hadzar() {
               setRequests([]);
               setRequestsAvailable(true);
               setRequestSent(false);
+              setMfaRequired(false);
+              setMfaChecking(false);
             }
           },
         );
@@ -79,7 +102,8 @@ export default function Hadzar() {
         const s = await c.auth.getSession();
         if (active) {
           setUser(s.data.session?.user ?? null);
-          if (!s.data.session) setLoading(false);
+          if (s.data.session) queueMicrotask(() => void checkMfa(c, true));
+          else setLoading(false);
         }
       })
       .catch((e) => {
@@ -94,7 +118,7 @@ export default function Hadzar() {
       loadVersion.current++;
       unsub?.();
     };
-  }, []);
+  }, [checkMfa]);
   const reload = useCallback(
     async (quiet = false) => {
       if (!client || !user || demo || !day) return;
@@ -131,19 +155,19 @@ export default function Hadzar() {
     [client, user, demo, day],
   );
   useEffect(() => {
-    if (!user || recovery) return;
+    if (!user || recovery || mfaChecking || mfaRequired) return;
     const timer = window.setTimeout(() => void reload(), 0);
     return () => window.clearTimeout(timer);
-  }, [user, recovery, reload]);
+  }, [user, recovery, mfaChecking, mfaRequired, reload]);
   useEffect(() => {
-    if (!user || demo || recovery) return;
+    if (!user || demo || recovery || mfaChecking || mfaRequired) return;
     const timer = setInterval(() => {
       if (document.visibilityState === "visible") void reload(true);
     }, 8000);
     return () => clearInterval(timer);
-  }, [user, demo, recovery, reload]);
+  }, [user, demo, recovery, mfaChecking, mfaRequired, reload]);
   useEffect(() => {
-    if (!client || !user || demo || recovery) return;
+    if (!client || !user || demo || recovery || mfaChecking || mfaRequired) return;
     const refresh = () => void reload(true);
     let channel = client.channel(`hadzar-live-${user.id}`)
       .on("postgres_changes", {
@@ -172,7 +196,7 @@ export default function Hadzar() {
     return () => {
       void client.removeChannel(channel);
     };
-  }, [client, user, demo, recovery, data?.couple.id, reload]);
+  }, [client, user, demo, recovery, mfaChecking, mfaRequired, data?.couple.id, reload]);
   async function act(fn: () => Promise<unknown>) {
     setBusy(true);
     setError("");
@@ -212,6 +236,8 @@ export default function Hadzar() {
         <p className="muted">Opening your space…</p>
       </main>
     );
+  if (mfaRequired && client && user && !demo)
+    return <MfaChallenge client={client} onVerified={() => setMfaRequired(false)} />;
   if ((!user || recovery) && !demo)
     return (
       <>

@@ -2316,6 +2316,45 @@ small,
   0%, 100% { transform: translateZ(0) scale(1); }
   50% { transform: translateZ(8px) scale(1.006); }
 }
+.mfa-setup {
+  display: grid;
+  gap: 12px;
+  max-width: 520px;
+}
+.mfa-qr {
+  width: min(220px, 100%);
+  aspect-ratio: 1;
+  padding: 12px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.mfa-secret {
+  width: fit-content;
+  max-width: 100%;
+  padding: 8px 10px;
+  overflow-wrap: anywhere;
+  color: var(--foreground);
+  background: var(--sheet);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+.mfa-uri {
+  overflow-wrap: anywhere;
+}
+.mfa-challenge-page {
+  gap: 26px;
+}
+.mfa-challenge-card {
+  display: grid;
+  gap: 16px;
+  width: min(420px, calc(100% - 36px));
+  padding: 30px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
 @media (max-width: 1023px) {
   .desktop-tabs {
     top: 80px;

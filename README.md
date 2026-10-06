@@ -23,6 +23,7 @@ Live email delivery and password recovery still depend on the connected Supabase
 6. Copy the Project URL and Publishable key (or legacy anon key). No service-role key is used by this app.
 7. Set `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` in `.env` for local development. Set the same two hosted runtime values through Sites before publishing the connected version. The config endpoint deliberately rejects privileged keys.
 8. Register two test accounts, confirm both emails, create a pair with one, create its invitation link, and join using the second. Test a third unrelated account to confirm pair isolation. Verify password reset, realtime updates and reloading saved data on another device before inviting real couples.
+9. If you want two-factor sign-in, enable TOTP enrollment and verification in Supabase Authentication settings. Users can then finish setup from Settings → Sign-in security in hadzar.
 
 Supabase documentation: https://supabase.com/docs/guides/auth/passwords and https://supabase.com/docs/guides/database/postgres/row-level-security.
 
@@ -47,7 +48,7 @@ Supabase documentation: https://supabase.com/docs/guides/auth/passwords and http
 - Activity items are persisted in Supabase and update in realtime. Chat messages written while offline wait in a user-scoped local outbox, keep their client id for idempotent retries, and show a visible sync count after reconnection.
 - New accounts get a short first-run setup panel that points to shared hours, a first busy block, and day confirmation without blocking exploration.
 - Desktop keeps notes and chat in a right column. Mobile uses six tabs. The sample workspace is ephemeral; real records live in Supabase, not browser storage. Supabase manages the login session in browser storage.
-- No external calendar synchronization, automatic bank debit or push notifications are claimed or configured.
+- No external calendar synchronization, automatic bank debit or server-side push notifications are claimed or configured.
 - Shared plans can be labelled as a date, quick catch-up, errands, quiet time, or a recurring ritual. Weekly and monthly rituals are created atomically, and a responsible partner can request a deadline extension for the creator to accept or decline.
 - Local quiet hours prevent notification badges and due-date reminders from interrupting the couple's chosen rest window. The preference is device-local by design; durable activity notifications remain available in the in-app panel.
 
@@ -85,4 +86,4 @@ Cold silver `#E8ECEF`, sheet `#F8FAFB`, person A `#58778D`, person B `#82708C`, 
 
 The public repository contains application source only. Local `.env` files are ignored, and the app accepts only the Supabase publishable key in the browser. Real records are protected by Supabase Row Level Security and are not included in the sample workspace.
 
-Hadzar currently provides durable in-app notifications, quiet hours, PWA shell caching, offline chat retry, and optional device notifications for reminders. It intentionally does not claim server-side Web Push, bank integrations, external calendar synchronization, or MFA until those services are configured and tested end to end.
+Hadzar currently provides durable in-app notifications, quiet hours, PWA shell caching, offline chat retry, optional device notifications for reminders, and optional TOTP MFA through Supabase Auth. It intentionally does not claim server-side Web Push, bank integrations, or external calendar synchronization until those services are configured and tested end to end.
