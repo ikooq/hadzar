@@ -53,6 +53,7 @@ function Bubble({
   return (
     <div
       data-slot="bubble"
+      
       data-variant={variant}
       data-align={align}
       className={cn(bubbleVariants({ variant }), className)}
