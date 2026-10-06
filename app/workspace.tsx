@@ -216,6 +216,7 @@ export default function Workspace({
         : { start: "22:00", end: "08:00" };
     } catch { return { start: "22:00", end: "08:00" }; }
   });
+  const [deviceNotifications, setDeviceNotifications] = useState(false);
   const [accountError, setAccountError] = useState("");
   const [online, setOnline] = useState(() =>
     typeof navigator === "undefined" ? true : navigator.onLine,
@@ -331,6 +332,20 @@ export default function Workspace({
       : minutesNow >= start || minutesNow < end;
   })();
   useEffect(() => {
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    queueMicrotask(() => setDeviceNotifications(
+      Notification.permission === "granted"
+      && localStorage.getItem(`hadzar-device-notifications-${couple.id}-${userId}`) !== "off",
+    ));
+  }, [couple.id, userId]);
+  const notifyDevice = useCallback((title: string, body: string, tag: string) => {
+    if (demo || quietNow || !deviceNotifications || typeof window === "undefined" || !("Notification" in window) || Notification.permission !== "granted") return;
+    const options = { body, tag, icon: "/favicon.svg", badge: "/favicon.svg" };
+    void navigator.serviceWorker?.ready
+      .then((registration) => registration.showNotification(title, options))
+      .catch(() => new Notification(title, options));
+  }, [demo, deviceNotifications, quietNow]);
+  useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 30000);
     return () => clearInterval(id);
   }, []);
@@ -392,10 +407,11 @@ export default function Workspace({
       body: note.body || "You saved this for later.",
       at: Date.now(),
     }));
+    fresh.forEach((notice) => notifyDevice(notice.title, notice.body, notice.id));
     queueMicrotask(() => setNotices((current) => [...fresh, ...current.filter((notice) => !fresh.some((item) => item.id === notice.id))]));
     const next = [...delivered, ...due.map((note) => note.id)].slice(-100);
     localStorage.setItem(storageKey, JSON.stringify(next));
-  }, [couple.id, data.notes, now, quietNow, userId]);
+  }, [couple.id, data.notes, demo, deviceNotifications, now, notifyDevice, quietNow, userId]);
   useEffect(() => {
     if (typeof window !== "undefined") localStorage.setItem(`hadzar-outbox-${couple.id}-${userId}`, JSON.stringify(queuedMessages));
   }, [couple.id, userId, queuedMessages]);
@@ -422,9 +438,10 @@ export default function Workspace({
       body: `Deadline ${new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: couple.timezone }).format(new Date(task.due_at))} · ${money(task.penalty)} at stake`,
       at: Date.now(),
     }));
+    fresh.forEach((notice) => notifyDevice(notice.title, notice.body, notice.id));
     queueMicrotask(() => setNotices((current) => [...fresh, ...current.filter((notice) => !fresh.some((item) => item.id === notice.id))]));
     localStorage.setItem(storageKey, JSON.stringify([...delivered, ...due.map((task) => task.id)].slice(-100)));
-  }, [couple.id, couple.timezone, data.tasks, now, quietNow, userId]);
+  }, [couple.id, couple.timezone, data.tasks, demo, deviceNotifications, now, notifyDevice, quietNow, userId]);
   useEffect(() => {
     if (!online || demo || !client || !queuedMessages.length) return;
     let active = true;
@@ -1319,6 +1336,24 @@ export default function Workspace({
       ...current,
       notifications: current.notifications.map((item) => item.id === id ? { ...item, read_at: item.read_at || new Date().toISOString() } : item),
     } : current);
+  }
+  async function enableDeviceNotifications() {
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      toast.error("This browser does not support device notifications");
+      return;
+    }
+    if (Notification.permission === "denied") {
+      toast.error("Notifications are blocked in this browser's site settings");
+      return;
+    }
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") {
+      toast.message("Device notifications remain off");
+      return;
+    }
+    localStorage.setItem(`hadzar-device-notifications-${couple.id}-${userId}`, "on");
+    setDeviceNotifications(true);
+    toast.success("Device reminders enabled");
   }
   function exportIcs() {
     const escapeIcs = (value: string) =>
@@ -2464,6 +2499,20 @@ export default function Workspace({
                   </label>
                 </div>
                 <p className="meta">This preference is saved on this device only, so each of you can protect a different rest window.</p>
+              </section>
+              <section className="settings-form">
+                <h2>Device reminders</h2>
+                <p className="meta">Show upcoming commitment and note reminders as browser notifications. Quiet hours still apply.</p>
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={busy || deviceNotifications}
+                  onClick={() => void enableDeviceNotifications()}
+                >
+                  <Bell size={15} />
+                  {deviceNotifications ? "Device reminders enabled" : "Enable device reminders"}
+                </button>
+                <p className="meta">If your browser asks for permission, choose Allow. In-app reminders remain available if device notifications are unavailable.</p>
               </section>
               <form className="settings-form" onSubmit={saveSettings}>
                 <h2>Time for two</h2>

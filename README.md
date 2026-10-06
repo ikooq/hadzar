@@ -2,6 +2,11 @@
 
 A shared space for two people with busy lives. English UI, individual email/password accounts, chosen names and unique nicknames, and invitation-only pair membership.
 
+[![CI](https://github.com/ikooq/hadzar/actions/workflows/ci.yml/badge.svg)](https://github.com/ikooq/hadzar/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+Hadzar helps a couple find time together, keep small promises, and remember the things that matter without turning their private space into a social feed.
+
 ## Current status
 
 The app and Supabase database migrations are implemented. A clearly labelled, in-memory sample workspace is available while the backend is not configured. It is not a substitute for registration: no sample data is saved and no accounts are faked.
@@ -55,10 +60,10 @@ npm ci
 npm run dev
 npm run build
 npx tsc --noEmit
-node tests/schedule.mjs
-node tests/database.mjs
-node tests/pair-requests.mjs
+npm test
 ```
+
+GitHub Actions runs the same lint, type-check, test, and build checks for every change to `main`. See [CONTRIBUTING.md](CONTRIBUTING.md) for the local workflow and [SECURITY.md](SECURITY.md) for private reporting guidance.
 
 On Windows hosts whose npm launcher cannot resolve paths containing spaces, run npm's JavaScript entry point directly:
 
@@ -75,3 +80,9 @@ The root `proxy.ts` adds security headers to every application response. Keep th
 ## Design
 
 Cold silver `#E8ECEF`, sheet `#F8FAFB`, person A `#58778D`, person B `#82708C`, together `#EAC64B`, responsibility `#9B4B5D`. Cormorant Garamond for expressive time and monetary figures; Golos Text for the interface. The shared window owns the sole saturated color surface.
+
+## Privacy and notifications
+
+The public repository contains application source only. Local `.env` files are ignored, and the app accepts only the Supabase publishable key in the browser. Real records are protected by Supabase Row Level Security and are not included in the sample workspace.
+
+Hadzar currently provides durable in-app notifications, quiet hours, PWA shell caching, offline chat retry, and optional device notifications for reminders. It intentionally does not claim server-side Web Push, bank integrations, external calendar synchronization, or MFA until those services are configured and tested end to end.
