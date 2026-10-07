@@ -926,6 +926,7 @@ small,
   margin-top: 5px;
 }
 .bubble {
+  position: relative;
   max-width: 85%;
   padding: 11px 14px 7px;
   background: var(--card);
@@ -947,26 +948,34 @@ small,
   white-space: pre-wrap;
 }
 .message-save {
+  position: absolute;
+  right: 8px;
+  bottom: 7px;
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin-top: 7px;
-  padding: 0;
+  margin: 0;
+  padding: 3px 6px;
   border: 0;
+  border-radius: 7px;
   background: transparent;
   color: var(--muted-foreground);
   font: inherit;
   font-size: 10px;
   cursor: pointer;
   opacity: 0;
-  transition: opacity 140ms ease, color 140ms ease;
+  pointer-events: none;
+  transition: opacity 140ms ease, color 140ms ease, background 140ms ease;
 }
 .bubble:hover .message-save,
+.bubble:focus-within .message-save,
 .message-save:focus-visible {
   opacity: 1;
+  pointer-events: auto;
 }
 .message-save:hover {
   color: var(--foreground);
+  background: rgba(255, 255, 255, 0.72);
 }
 .message-time {
   display: flex;
