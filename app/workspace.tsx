@@ -1387,6 +1387,26 @@ export default function Workspace({
     URL.revokeObjectURL(url);
     toast.success("Calendar file downloaded");
   }
+  function addToGoogleCalendar() {
+    const event = shared[0] || allEvents[0];
+    const start = event?.start_min ?? couple.day_start;
+    const end = event?.end_min ?? couple.day_end;
+    const compactDay = day.replaceAll("-", "");
+    const compactTime = (value: number) => time(value).replace(":", "") + "00";
+    const calendarUrl = new URL("https://calendar.google.com/calendar/render");
+    calendarUrl.searchParams.set("action", "TEMPLATE");
+    calendarUrl.searchParams.set("text", event?.title || "hadzar — time together");
+    calendarUrl.searchParams.set(
+      "details",
+      event?.shared
+        ? "Shared time together · planned in hadzar"
+        : "Shared planning block · planned in hadzar",
+    );
+    calendarUrl.searchParams.set("dates", `${compactDay}T${compactTime(start)}/${compactDay}T${compactTime(end)}`);
+    calendarUrl.searchParams.set("ctz", couple.timezone);
+    window.open(calendarUrl.toString(), "_blank", "noopener,noreferrer");
+    toast.success("Google Calendar opened");
+  }
   async function importIcs(e: ChangeEvent<HTMLInputElement>) {
     const file = e.currentTarget.files?.[0];
     e.currentTarget.value = "";
@@ -1977,6 +1997,9 @@ export default function Workspace({
                 </span>
                 <button className="plain calendar-export" onClick={exportIcs}>
                   <CalendarPlus size={15} /> Export .ics
+                </button>
+                <button className="plain calendar-export" onClick={addToGoogleCalendar}>
+                  <ArrowUpRight size={15} /> Google Calendar
                 </button>
                 <label className="plain calendar-import" htmlFor="hadzar-ics-import">
                   <Upload size={15} /> Import .ics
