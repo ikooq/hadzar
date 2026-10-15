@@ -715,6 +715,22 @@ small,
   font-weight: 500;
   line-height: 1.3;
 }
+.calendar-event.short-event {
+  justify-content: center;
+  gap: 0;
+  padding: 3px 8px;
+}
+.calendar-event.short-event .event-time {
+  display: none;
+}
+.calendar-event.short-event strong {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 12px;
+  line-height: 1.15;
+}
 .shared-window {
   position: absolute;
   left: 56px;

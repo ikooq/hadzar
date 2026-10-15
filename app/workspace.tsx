@@ -880,16 +880,47 @@ export default function Workspace({
         if (end <= start)
           throw new Error("The end time must be after the start time.");
         const title = String(f.get("title")).trim();
+
+        if (modal.event) {
+          const changes = { title, start_min: start, end_min: end };
+          if (demo) {
+            update((d) => ({
+              ...d,
+              events: d.events.map((event) => event.id === modal.event!.id ? { ...event, ...changes } : event),
+            }));
+          } else {
+            await checked(
+              client!
+                .from("events")
+                .update(changes)
+                .eq("id", modal.event.id)
+                .eq("user_id", userId)
+                .eq("shared", false),
+            );
+            update((d) => ({
+              ...d,
+              events: d.events.map((event) => event.id === modal.event!.id ? { ...event, ...changes } : event),
+            }));
+          }
+          return;
+        }
+
         const repeat = String(f.get("repeat") || "none");
-        const days = [day];
         const date = new Date(day + "T12:00:00Z");
-        const count = repeat === "daily" ? 6 : repeat === "weekdays" ? 13 : repeat === "weekly" ? 21 : 0;
-        for (let i = 1; i <= count; i++) {
+        const repeatTarget = repeat === "daily" ? 7 : repeat === "weekdays" ? 10 : repeat === "weekends" ? 8 : repeat === "weekly" ? 4 : 1;
+        const matchesRepeat = (candidate: Date, offset: number) => {
+          const weekday = candidate.getUTCDay();
+          if (repeat === "weekdays") return weekday >= 1 && weekday <= 5;
+          if (repeat === "weekends") return weekday === 0 || weekday === 6;
+          if (repeat === "weekly") return offset % 7 === 0;
+          return repeat === "daily";
+        };
+        const days: string[] = [];
+        if (repeat === "none" || matchesRepeat(date, 0)) days.push(day);
+        for (let i = 1; days.length < repeatTarget && i <= 60; i++) {
           const next = new Date(date);
           next.setUTCDate(next.getUTCDate() + i);
-          if (repeat === "weekdays" && [0, 6].includes(next.getUTCDay())) continue;
-          if (repeat === "weekly" && i % 7 !== 0) continue;
-          days.push(next.toISOString().slice(0, 10));
+          if (matchesRepeat(next, i)) days.push(next.toISOString().slice(0, 10));
         }
         const seriesId = repeat === "none" ? null : crypto.randomUUID();
         const records = days.map((eventDay) => ({
@@ -2080,7 +2111,12 @@ export default function Workspace({
                   .map((e) => (
                     <button
                       key={e.id}
-                      className={"calendar-event " + color(e.user_id)}
+                      className={
+                        "calendar-event " +
+                        color(e.user_id) +
+                        (e.end_min - e.start_min < 60 ? " short-event" : "")
+                      }
+                      title={`${time(e.start_min)}–${time(e.end_min)} · ${e.title}`}
                       style={{
                         top:
                           Math.max(e.start_min, couple.day_start) -
@@ -2708,7 +2744,9 @@ export default function Workspace({
             <DialogTitle>
               {modal?.kind === "event"
                 ? modal.event
-                  ? "A moment in the day."
+                  ? modal.event.shared || modal.event.user_id !== userId
+                    ? "A moment in the day."
+                    : "Edit busy time."
                   : "Block your busy time."
                   : modal?.kind === "task"
                     ? modal.task
@@ -2797,7 +2835,7 @@ export default function Workspace({
                   {inviteLink ? "Create a new link" : "Create invitation link"}
                 </button>
               </div>
-            ) : modal?.event ? (
+            ) : modal?.event && (modal.event.shared || modal.event.user_id !== userId) ? (
               <div className="dialog-body">
                 <h2>{modal.event.title}</h2>
                 <p>
@@ -2877,7 +2915,7 @@ export default function Workspace({
                       name="title"
                       required
                       maxLength={120}
-                      defaultValue={modal?.note?.title || modal?.prefill?.title || modal?.task?.title || ""}
+                      defaultValue={modal?.event?.title || modal?.note?.title || modal?.prefill?.title || modal?.task?.title || ""}
                       readOnly={!!modal?.task}
                       placeholder={
                         modal?.kind === "plan"
@@ -2915,7 +2953,7 @@ export default function Workspace({
                       <input
                         name="start"
                         type="time"
-                        defaultValue="09:00"
+                        defaultValue={modal?.event ? time(modal.event.start_min) : "09:00"}
                         required
                       />
                     </label>
@@ -2924,19 +2962,20 @@ export default function Workspace({
                       <input
                         name="end"
                         type="time"
-                        defaultValue="10:00"
+                        defaultValue={modal?.event ? time(modal.event.end_min) : "10:00"}
                         required
                       />
                     </label>
                   </div>
                 )}
-                {modal?.kind === "event" && (
+                {modal?.kind === "event" && !modal.event && (
                   <label>
                     Repeat this busy block
                     <select name="repeat" defaultValue="none">
                       <option value="none">Only this day</option>
                       <option value="daily">Every day for one week</option>
-                      <option value="weekdays">Weekdays for two weeks</option>
+                      <option value="weekdays">Every weekday for two weeks</option>
+                      <option value="weekends">Every weekend for four weeks</option>
                       <option value="weekly">Weekly for four weeks</option>
                     </select>
                   </label>
@@ -3073,6 +3112,8 @@ export default function Workspace({
                           ? "Send extension request"
                         : modal?.kind === "plan"
                           ? "Add our plan"
+                        : modal?.kind === "event" && modal.event
+                          ? "Save changes"
                           : "Save"}
                   </button>
                 </div>
