@@ -3080,6 +3080,16 @@ export default function Workspace({
                   </>
                 )}
                 <div className="dialog-actions">
+                  {modal?.kind === "event" && modal.event && (
+                    <button
+                      type="button"
+                      className="plain danger-action"
+                      disabled={busy}
+                      onClick={() => void removeEvent(modal.event!)}
+                    >
+                      <Trash2 size={15} /> Delete busy time
+                    </button>
+                  )}
                   {modal?.kind === "plan" && (
                     <>
                       <button type="button" className="plain" onClick={() => { setModal(null); setView("chat"); }}>
