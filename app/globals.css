@@ -1384,6 +1384,10 @@ small,
 .dialog-actions > .icon-btn {
   margin-right: auto;
 }
+.dialog-actions > .danger-action {
+  margin-top: 0;
+  margin-right: auto;
+}
 .check-label {
   display: flex;
   align-items: center;
