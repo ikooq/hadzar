@@ -5,6 +5,8 @@ A shared space for two people with busy lives. English UI, individual email/pass
 [![CI](https://github.com/ikooq/hadzar/actions/workflows/ci.yml/badge.svg)](https://github.com/ikooq/hadzar/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+Live app: https://hadzar.ilias-bakyt.chatgpt.site
+
 Hadzar helps a couple find time together, keep small promises, and remember the things that matter without turning their private space into a social feed.
 
 ## Current status
