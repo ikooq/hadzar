@@ -66,6 +66,10 @@
   "overrides": {
     "miniflare": {
       "sharp": "0.35.5"
-    }
+    },
+    "@esbuild-kit/core-utils": {
+      "esbuild": "0.25.12"
+    },
+    "fflate": "0.7.5"
   }
 }
